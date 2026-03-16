@@ -84,6 +84,27 @@ class BuildNcbiTaxonomyTests(unittest.TestCase):
             self.assertEqual(lineage_json[-1]["taxid"], 853)
             self.assertEqual(metadata_value, summary.taxonomy_build_version)
 
+    def test_build_emits_progress_events(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            dump_path = tmpdir_path / "mini_taxdump.tar.gz"
+            db_path = tmpdir_path / "mini_taxonomy.sqlite"
+            self._write_taxdump_archive(dump_path)
+            events: list[tuple[str, str, int | None, int | None, bool]] = []
+
+            build_taxonomy_database(
+                dump_path,
+                db_path,
+                progress_callback=lambda stage, message, current, total, final: events.append(
+                    (stage, message, current, total, final)
+                ),
+            )
+
+            self.assertTrue(any(stage == "nodes" for stage, *_ in events))
+            self.assertTrue(any(stage == "names" for stage, *_ in events))
+            self.assertTrue(any(stage == "lineage" for stage, *_ in events))
+            self.assertTrue(any(event[0] == "done" and event[4] for event in events))
+
     def _write_taxdump_archive(self, archive_path: Path) -> None:
         """Create a minimal tar.gz archive matching the builder's expectations."""
 

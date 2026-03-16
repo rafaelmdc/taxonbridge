@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable
 from collections import defaultdict
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -32,6 +33,7 @@ RANK_COLUMN_MAP = {
     "genus": "genus",
     "species": "species",
 }
+ProgressCallback = Callable[[str, str, int | None, int | None, bool], None]
 
 
 @dataclass(slots=True)
@@ -112,10 +114,27 @@ def _build_taxonomy_version(built_at_utc: str, source_dump_sha256: str) -> str:
     return f"ncbi-taxonomy-{date_part}-{source_dump_sha256[:12]}"
 
 
+def _notify_progress(
+    callback: ProgressCallback | None,
+    *,
+    stage: str,
+    message: str,
+    current: int | None = None,
+    total: int | None = None,
+    final: bool = False,
+) -> None:
+    """Send a progress event if a callback was provided."""
+
+    if callback is not None:
+        callback(stage, message, current, total, final)
+
+
 def _insert_nodes(
     archive: TarFile,
     *,
     batch_size: int = 50_000,
+    progress_callback: ProgressCallback | None = None,
+    progress_every: int = 250_000,
 ) -> tuple[dict[int, int], dict[int, str], int]:
     """Parse and insert `nodes.dmp`, returning parent and rank lookup maps."""
 
@@ -160,8 +179,24 @@ def _insert_nodes(
                 insert_taxa_rows(batch)
                 batch.clear()
 
+            if row_count % progress_every == 0:
+                _notify_progress(
+                    progress_callback,
+                    stage="nodes",
+                    message="Loading nodes.dmp",
+                    current=row_count,
+                )
+
     if batch:
         insert_taxa_rows(batch)
+
+    _notify_progress(
+        progress_callback,
+        stage="nodes",
+        message="Loaded nodes.dmp",
+        current=row_count,
+        final=True,
+    )
 
     return parent_by_taxid, rank_by_taxid, row_count
 
@@ -170,6 +205,8 @@ def _insert_names(
     archive: TarFile,
     *,
     batch_size: int = 50_000,
+    progress_callback: ProgressCallback | None = None,
+    progress_every: int = 250_000,
 ) -> tuple[dict[int, str], int, int, int]:
     """Parse and insert `names.dmp`, tracking scientific names for each taxid."""
 
@@ -204,8 +241,24 @@ def _insert_names(
                 insert_taxon_name_rows(batch)
                 batch.clear()
 
+            if total_names % progress_every == 0:
+                _notify_progress(
+                    progress_callback,
+                    stage="names",
+                    message="Loading names.dmp",
+                    current=total_names,
+                )
+
     if batch:
         insert_taxon_name_rows(batch)
+
+    _notify_progress(
+        progress_callback,
+        stage="names",
+        message="Loaded names.dmp",
+        current=total_names,
+        final=True,
+    )
 
     return scientific_name_by_taxid, total_names, scientific_names, synonym_names
 
@@ -303,6 +356,8 @@ def _insert_lineage_cache(
     scientific_name_by_taxid: dict[int, str],
     *,
     batch_size: int = 25_000,
+    progress_callback: ProgressCallback | None = None,
+    progress_every: int = 250_000,
 ) -> int:
     """Materialize lineage cache rows for every taxon."""
 
@@ -315,9 +370,24 @@ def _insert_lineage_cache(
         if len(batch) >= batch_size:
             insert_lineage_rows(batch)
             batch.clear()
+        if row_count % progress_every == 0:
+            _notify_progress(
+                progress_callback,
+                stage="lineage",
+                message="Materializing lineage cache",
+                current=row_count,
+            )
 
     if batch:
         insert_lineage_rows(batch)
+
+    _notify_progress(
+        progress_callback,
+        stage="lineage",
+        message="Materialized lineage cache",
+        current=row_count,
+        final=True,
+    )
 
     return row_count
 
@@ -376,12 +446,29 @@ def _validate_build(
     }
 
 
-def build_taxonomy_database(dump_path: Path | str, db_path: Path | str) -> TaxonomyBuildSummary:
+def build_taxonomy_database(
+    dump_path: Path | str,
+    db_path: Path | str,
+    *,
+    progress_callback: ProgressCallback | None = None,
+) -> TaxonomyBuildSummary:
     """Build the SQLite taxonomy reference database from an NCBI taxdump archive."""
 
     dump_path = Path(dump_path)
     db_path = Path(db_path)
+    _notify_progress(
+        progress_callback,
+        stage="prepare",
+        message="Validating taxdump archive",
+        final=True,
+    )
     available_members = validate_taxdump_archive(dump_path)
+    _notify_progress(
+        progress_callback,
+        stage="prepare",
+        message="Initializing SQLite schema",
+        final=True,
+    )
     built_at_utc = datetime.now(timezone.utc).isoformat()
     source_dump_sha256 = sha256_file(dump_path)
     taxonomy_build_version = _build_taxonomy_version(built_at_utc, source_dump_sha256)
@@ -391,15 +478,45 @@ def build_taxonomy_database(dump_path: Path | str, db_path: Path | str) -> Taxon
     clear_reference_tables(db_path)
 
     with TarFile.open(dump_path) as archive:
-        parent_by_taxid, rank_by_taxid, taxa_count = _insert_nodes(archive)
+        _notify_progress(
+            progress_callback,
+            stage="nodes",
+            message="Starting nodes.dmp load",
+            current=0,
+        )
+        parent_by_taxid, rank_by_taxid, taxa_count = _insert_nodes(
+            archive,
+            progress_callback=progress_callback,
+        )
+        _notify_progress(
+            progress_callback,
+            stage="names",
+            message="Starting names.dmp load",
+            current=0,
+        )
         scientific_name_by_taxid, name_count, scientific_name_count, synonym_count = _insert_names(
-            archive
+            archive,
+            progress_callback=progress_callback,
         )
 
+    _notify_progress(
+        progress_callback,
+        stage="lineage",
+        message="Starting lineage cache materialization",
+        current=0,
+        total=taxa_count,
+    )
     lineage_cache_count = _insert_lineage_cache(
         parent_by_taxid=parent_by_taxid,
         rank_by_taxid=rank_by_taxid,
         scientific_name_by_taxid=scientific_name_by_taxid,
+        progress_callback=progress_callback,
+    )
+    _notify_progress(
+        progress_callback,
+        stage="validate",
+        message="Running validation checks",
+        final=True,
     )
     validation_checks = _validate_build(
         expected_taxa_count=taxa_count,
@@ -408,6 +525,12 @@ def build_taxonomy_database(dump_path: Path | str, db_path: Path | str) -> Taxon
     )
     root_taxid_count = _get_root_taxid_count()
 
+    _notify_progress(
+        progress_callback,
+        stage="metadata",
+        message="Writing build metadata",
+        final=True,
+    )
     upsert_metadata(
         db_path,
         {
@@ -428,6 +551,12 @@ def build_taxonomy_database(dump_path: Path | str, db_path: Path | str) -> Taxon
                 validation_checks, ensure_ascii=True, separators=(",", ":")
             ),
         },
+    )
+    _notify_progress(
+        progress_callback,
+        stage="done",
+        message="Build complete",
+        final=True,
     )
 
     return TaxonomyBuildSummary(

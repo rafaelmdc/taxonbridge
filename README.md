@@ -92,6 +92,12 @@ At this stage the local taxonomy reference store is real, but resolver matching
 logic is still placeholder code pending the later deterministic and fuzzy
 phases.
 
+The build CLI now reports progress for both:
+
+- archive download when `--download` is used
+- long-running build stages such as loading `nodes.dmp`, loading `names.dmp`,
+  and materializing the lineage cache
+
 ## Documentation
 
 - [Architecture foundation](docs/architecture.md)

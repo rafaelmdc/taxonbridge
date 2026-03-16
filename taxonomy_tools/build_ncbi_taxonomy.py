@@ -5,7 +5,8 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-import shutil
+import sys
+from typing import TextIO
 import urllib.request
 
 from taxonomy_resolver.build import build_taxonomy_database
@@ -38,16 +39,120 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def download_taxdump(url: str, destination: Path) -> None:
+def _format_size(num_bytes: int) -> str:
+    """Format byte counts into a compact human-readable string."""
+
+    units = ["B", "KB", "MB", "GB"]
+    size = float(num_bytes)
+    unit = units[0]
+    for unit in units:
+        if size < 1024 or unit == units[-1]:
+            break
+        size /= 1024
+    return f"{size:.1f} {unit}"
+
+
+def _render_progress(downloaded: int, total: int | None) -> str:
+    """Render one progress line for the download step."""
+
+    downloaded_text = _format_size(downloaded)
+    if total and total > 0:
+        percent = downloaded / total * 100
+        total_text = _format_size(total)
+        return f"\rDownloading taxdump: {percent:5.1f}% ({downloaded_text} / {total_text})"
+    return f"\rDownloading taxdump: {_format_size(downloaded)}"
+
+
+class BuildProgressPrinter:
+    """Render build stage updates as friendly CLI progress lines."""
+
+    def __init__(self, stream: TextIO | None = None) -> None:
+        self.stream = stream if stream is not None else sys.stderr
+        self._active_stage: str | None = None
+
+    def __call__(
+        self,
+        stage: str,
+        message: str,
+        current: int | None,
+        total: int | None,
+        final: bool,
+    ) -> None:
+        """Print one build progress event."""
+
+        if self._active_stage is not None and stage != self._active_stage:
+            print(file=self.stream, flush=True)
+            self._active_stage = None
+
+        line = self._render_line(message, current, total)
+        if current is not None and not final:
+            self._active_stage = stage
+            print(f"\r{line}", end="", file=self.stream, flush=True)
+            return
+
+        if self._active_stage is not None:
+            print(file=self.stream, flush=True)
+            self._active_stage = None
+        print(line, file=self.stream, flush=True)
+
+    def finish(self) -> None:
+        """Terminate any in-place progress line cleanly."""
+
+        if self._active_stage is not None:
+            print(file=self.stream, flush=True)
+            self._active_stage = None
+
+    def _render_line(self, message: str, current: int | None, total: int | None) -> str:
+        """Render one build progress line."""
+
+        if current is None:
+            return message
+        if total is not None and total > 0:
+            percent = current / total * 100
+            return f"{message}: {percent:5.1f}% ({current:,} / {total:,} rows)"
+        return f"{message}: {current:,} rows"
+
+
+def download_taxdump(
+    url: str,
+    destination: Path,
+    *,
+    progress_stream: TextIO | None = None,
+    chunk_size: int = 1024 * 1024,
+) -> None:
     """Download the NCBI taxdump archive to a local path.
 
     The builder still operates on a local archive file. This helper simply adds
     an optional one-step fetch phase before the normal local build path.
     """
 
+    stream = progress_stream if progress_stream is not None else sys.stderr
     destination.parent.mkdir(parents=True, exist_ok=True)
     with urllib.request.urlopen(url) as response, destination.open("wb") as handle:
-        shutil.copyfileobj(response, handle)
+        total_bytes_header = response.headers.get("Content-Length")
+        total_bytes = int(total_bytes_header) if total_bytes_header else None
+        downloaded_bytes = 0
+
+        while True:
+            chunk = response.read(chunk_size)
+            if not chunk:
+                break
+            handle.write(chunk)
+            downloaded_bytes += len(chunk)
+            print(
+                _render_progress(downloaded_bytes, total_bytes),
+                end="",
+                file=stream,
+                flush=True,
+            )
+
+    if stream is not None:
+        final_suffix = (
+            f" complete: {_format_size(downloaded_bytes)} downloaded"
+            if total_bytes is None
+            else " complete"
+        )
+        print(final_suffix, file=stream, flush=True)
 
 
 def main() -> None:
@@ -55,11 +160,17 @@ def main() -> None:
 
     args = parse_args()
     dump_path = Path(args.dump)
+    progress_printer = BuildProgressPrinter()
     if args.download:
         print(f"Downloading NCBI taxdump to {dump_path}")
         download_taxdump(args.download_url, dump_path)
 
-    summary = build_taxonomy_database(dump_path, Path(args.db))
+    summary = build_taxonomy_database(
+        dump_path,
+        Path(args.db),
+        progress_callback=progress_printer,
+    )
+    progress_printer.finish()
 
     if args.report_json:
         report_path = Path(args.report_json)

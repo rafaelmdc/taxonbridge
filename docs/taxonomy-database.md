@@ -121,6 +121,14 @@ The CLI can either:
 - build from an existing local archive
 - or download the official archive to the `--dump` path first and then build
 
+The CLI also emits progress updates during long-running steps so local terminal
+use is easier to monitor:
+
+- download progress for `--download`
+- row-count progress while loading `nodes.dmp`
+- row-count progress while loading `names.dmp`
+- row-count progress while materializing `lineage_cache`
+
 ## Validation checks
 
 The current build validates:
