@@ -23,6 +23,8 @@ NODES_DMP = """1\t|\t1\t|\tno rank\t|\t\t|\t8\t|\t0\t|\t1\t|\t0\t|\t1\t|\t0\t|\t
 853\t|\t239934\t|\tspecies\t|\t\t|\t0\t|\t0\t|\t11\t|\t0\t|\t11\t|\t0\t|\t0\t|\t0\t|\t\t|
 854\t|\t239934\t|\tspecies\t|\t\t|\t0\t|\t0\t|\t11\t|\t0\t|\t11\t|\t0\t|\t0\t|\t0\t|\t\t|
 855\t|\t239934\t|\tspecies\t|\t\t|\t0\t|\t0\t|\t11\t|\t0\t|\t11\t|\t0\t|\t0\t|\t0\t|\t\t|
+856\t|\t239934\t|\tspecies\t|\t\t|\t0\t|\t0\t|\t11\t|\t0\t|\t11\t|\t0\t|\t0\t|\t0\t|\t\t|
+857\t|\t239934\t|\tspecies\t|\t\t|\t0\t|\t0\t|\t11\t|\t0\t|\t11\t|\t0\t|\t0\t|\t0\t|\t\t|
 """
 
 NAMES_DMP = """1\t|\troot\t|\t\t|\tscientific name\t|
@@ -38,6 +40,8 @@ NAMES_DMP = """1\t|\troot\t|\t\t|\tscientific name\t|
 854\t|\tShared synonym\t|\t\t|\tsynonym\t|
 855\t|\tFaecalibacterium minor\t|\t\t|\tscientific name\t|
 855\t|\tShared synonym\t|\t\t|\tsynonym\t|
+856\t|\tFaecalibacterium prausnitzii alpha\t|\t\t|\tscientific name\t|
+857\t|\tFaecalibacterium prausnitzii beta\t|\t\t|\tscientific name\t|
 """
 
 
@@ -134,6 +138,47 @@ class DeterministicResolutionTests(unittest.TestCase):
         self.assertEqual(lineage[-1]["taxid"], 853)
         self.assertEqual(lineage[-1]["rank"], "species")
         self.assertEqual(lineage[-1]["name"], "Faecalibacterium prausnitzii")
+
+    def test_returns_unique_fuzzy_candidate_for_typo(self) -> None:
+        result = self.service.resolve_name(
+            ResolveRequest(
+                original_name="Faecalibacterim prausnitzii",
+                provided_level="species",
+                allow_fuzzy=True,
+            )
+        )
+
+        self.assertEqual(result.status, ResolutionStatus.SUGGESTED_FUZZY_UNIQUE)
+        self.assertEqual(result.match_type, MatchType.FUZZY)
+        self.assertTrue(result.review_required)
+        self.assertFalse(result.auto_accept)
+        self.assertEqual(len(result.candidates), 1)
+        self.assertEqual(result.candidates[0].taxid, 853)
+
+    def test_returns_multiple_fuzzy_candidates_when_scores_are_close(self) -> None:
+        result = self.service.resolve_name(
+            ResolveRequest(
+                original_name="Faecalibacterium prausnitzii gam",
+                provided_level="species",
+                allow_fuzzy=True,
+            )
+        )
+
+        self.assertEqual(result.status, ResolutionStatus.AMBIGUOUS_FUZZY_MULTIPLE)
+        self.assertEqual(result.match_type, MatchType.FUZZY)
+        self.assertGreaterEqual(len(result.candidates), 2)
+        self.assertIn(WarningCode.MULTIPLE_FUZZY_CANDIDATES, result.warnings)
+
+    def test_returns_unresolved_for_unrelated_name(self) -> None:
+        result = self.service.resolve_name(
+            ResolveRequest(
+                original_name="Zzzzzzz organism",
+                provided_level="species",
+                allow_fuzzy=True,
+            )
+        )
+
+        self.assertEqual(result.status, ResolutionStatus.UNRESOLVED_NO_MATCH)
 
     def _write_taxdump_archive(self, archive_path: Path) -> None:
         """Create a small tar.gz archive matching the builder's expectations."""

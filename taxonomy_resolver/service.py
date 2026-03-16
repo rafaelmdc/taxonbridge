@@ -71,7 +71,11 @@ class TaxonomyResolverService:
         if exact_result:
             return exact_result
 
-        candidates = suggest_fuzzy_candidates(request) if request.allow_fuzzy else []
+        candidates = (
+            suggest_fuzzy_candidates(request, self.taxonomy_db_path)
+            if request.allow_fuzzy
+            else []
+        )
         if candidates:
             return ResolveResult(
                 original_name=request.original_name,
@@ -84,11 +88,11 @@ class TaxonomyResolverService:
                 auto_accept=False,
                 match_type=MatchType.FUZZY,
                 candidates=candidates,
-                warnings=[
-                    WarningCode.MULTIPLE_FUZZY_CANDIDATES
+                warnings=(
+                    [WarningCode.MULTIPLE_FUZZY_CANDIDATES]
                     if len(candidates) > 1
-                    else WarningCode.NOT_IMPLEMENTED
-                ],
+                    else []
+                ),
             )
 
         return ResolveResult(

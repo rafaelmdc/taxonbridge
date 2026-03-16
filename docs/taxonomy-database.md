@@ -104,7 +104,8 @@ The builder creates indexes for:
 - `taxon_names(name_class)`
 
 These cover the immediate Phase 2 goals: exact name lookup, synonym lookup,
-normalized lookup, and parent-child traversal.
+normalized lookup, parent-child traversal, and bounded candidate-pool retrieval
+for the current fuzzy layer.
 
 ## Build flow
 
@@ -159,6 +160,20 @@ python -m taxonomy_tools.build_ncbi_taxonomy \
 
 The `--download` flag keeps the build local-first: the archive is fetched once
 to a normal file path, and the database is still built from that local archive.
+
+## How the resolver uses the DB today
+
+The current resolver uses this database for:
+
+- exact scientific-name lookup
+- exact synonym lookup
+- normalized exact lookup
+- cached lineage retrieval
+- bounded fuzzy candidate-pool lookup against `normalized_name`
+
+The repository does not currently build a separate full-text or edit-distance
+search index. The existing `normalized_name` index is the current compromise
+until there is evidence that fuzzy candidate-pool narrowing is the bottleneck.
 
 ## Example inspection queries
 

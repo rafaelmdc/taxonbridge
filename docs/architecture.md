@@ -1,6 +1,7 @@
-# Architecture Foundation
+# Architecture
 
-This document captures the implementation boundary for Phases 1 through 4.
+This document captures the current implementation boundary and the intended
+layering for the repository.
 
 ## Layered design
 
@@ -51,11 +52,14 @@ It does not own taxonomy policy.
 1. Read workbook rows with the Excel adapter.
 2. Convert rows into `ResolveRequest` items.
 3. Submit requests to `TaxonomyResolverService`.
-4. Auto-accept only safe deterministic or cache-backed outcomes.
-5. Send uncertain outcomes to a review queue.
-6. Record user decisions in reviewed mapping storage.
-7. Create or link canonical organism records downstream.
-8. Link findings rows back to canonical organisms while preserving provenance.
+4. Run deterministic resolution first.
+5. Run supervised fuzzy suggestions only if deterministic lookup fails and the
+   input is not a vague label.
+6. Auto-accept only safe deterministic or cache-backed outcomes.
+7. Send uncertain outcomes to a review queue.
+8. Record user decisions in reviewed mapping storage.
+9. Create or link canonical organism records downstream.
+10. Link findings rows back to canonical organisms while preserving provenance.
 
 ## Internal contract
 
@@ -73,9 +77,9 @@ This lets the same contract drive:
 - Django services
 - future FastAPI wrappers
 
-## Current scaffold scope
+## Current implemented scope
 
-The current repository foundation includes:
+The current repository includes:
 
 - package layout for `taxonomy_resolver`
 - shared status, warning, and schema models
@@ -85,10 +89,22 @@ The current repository foundation includes:
 - materialized lineage cache generation
 - build metadata and validation reporting
 - deterministic exact, synonym, and normalized lookup
+- supervised fuzzy fallback candidate generation
+- RapidFuzz-backed fuzzy scoring with a bounded SQLite candidate pool
 - lineage retrieval from cached lineage JSON
 - thin CLI entry points for schema bootstrap and single-name resolution
 
 It does not yet include:
 
-- fuzzy candidate generation
 - reviewed mapping persistence
+- Excel-specific import adapter
+- Django orchestration, review queue, and UI
+
+## Design notes
+
+- Deterministic logic stays ahead of fuzzy logic at the service layer.
+- The resolver remains workbook-agnostic and Django-agnostic.
+- The current fuzzy layer intentionally uses the existing `normalized_name`
+  index plus a narrowed candidate pool instead of a separate FTS/search index.
+  That keeps build complexity down until there is evidence the bounded query is
+  the bottleneck.

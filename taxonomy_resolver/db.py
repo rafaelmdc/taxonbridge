@@ -287,3 +287,59 @@ def fetch_lineage_entries(db_path: Path | str, taxid: int) -> list[dict[str, obj
     if row is None:
         return []
     return list(json.loads(row["lineage_json"]))
+
+
+def fetch_fuzzy_name_pool(
+    db_path: Path | str,
+    normalized_name: str,
+    *,
+    limit: int = 1000,
+) -> list[sqlite3.Row]:
+    """Return a narrowed candidate pool for supervised fuzzy suggestion.
+
+    This uses conservative prefix filters so the query stays bounded on the
+    local SQLite reference store without requiring an additional search index.
+    """
+
+    tokens = [token for token in normalized_name.split() if len(token) >= 3]
+    prefixes = [token[:4] for token in tokens[:2]]
+    if not prefixes:
+        prefixes = [normalized_name[:4]] if normalized_name else []
+
+    predicates: list[str] = []
+    parameters: list[object] = []
+    for prefix in prefixes:
+        predicates.append("n.normalized_name LIKE ?")
+        parameters.append(f"{prefix}%")
+        if len(tokens) > 1:
+            predicates.append("n.normalized_name LIKE ?")
+            parameters.append(f"% {prefix}%")
+
+    if not predicates:
+        return []
+
+    parameters.append(limit)
+    query = f"""
+        SELECT
+            n.taxid,
+            n.name_txt AS matched_name,
+            n.normalized_name,
+            n.name_class,
+            t.rank,
+            sci.name_txt AS scientific_name
+        FROM taxon_names AS n
+        JOIN taxa AS t
+            ON t.taxid = n.taxid
+        LEFT JOIN taxon_names AS sci
+            ON sci.taxid = n.taxid
+           AND sci.name_class = 'scientific name'
+        WHERE {" OR ".join(predicates)}
+        ORDER BY
+            CASE WHEN n.name_class = 'scientific name' THEN 0 ELSE 1 END,
+            LENGTH(n.normalized_name),
+            n.taxid
+        LIMIT ?
+    """
+
+    with connect(db_path) as connection:
+        return list(connection.execute(query, parameters).fetchall())

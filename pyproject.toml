@@ -12,7 +12,9 @@ license = { text = "Proprietary" }
 authors = [
   { name = "Rafael" }
 ]
-dependencies = []
+dependencies = [
+  "rapidfuzz>=3.0,<4.0"
+]
 
 [tool.setuptools.packages.find]
 include = ["taxonomy_resolver*", "taxonomy_tools*"]

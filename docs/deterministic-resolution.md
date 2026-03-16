@@ -28,6 +28,9 @@ It does not yet do:
 - abbreviation expansion
 - aggressive token stripping
 
+`provided_level` is normalized separately for soft rank comparison. For example,
+aliases such as `domain` and `super kingdom` are normalized before comparison.
+
 ## Deterministic outcomes
 
 ### Exact scientific name
@@ -94,3 +97,11 @@ review.
 
 Resolved results include lineage from the materialized `lineage_cache` table.
 The service also exposes lineage lookup directly by taxid.
+
+## Current limits
+
+This layer intentionally does not:
+
+- use fuzzy scoring
+- reuse reviewed mappings yet
+- infer missing taxonomy levels from workbook-specific context

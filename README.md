@@ -4,10 +4,31 @@ Taxonbridge is the local-first taxonomy resolution engine for microbiome
 curation workflows. This repository is the reusable core library, not the final
 application repository.
 
+## Implementation status
+
+Implemented now:
+
+- local NCBI taxdump ingestion into SQLite
+- reproducible build metadata and validation reporting
+- materialized lineage cache
+- deterministic resolution:
+  scientific name, synonym, normalized exact
+- soft `provided_level` validation with `level_conflict`
+- supervised fuzzy fallback with RapidFuzz-backed scoring
+- JSON-like request/response contracts
+- local CLI for build and single-name resolution
+
+Still intentionally deferred:
+
+- reviewed mapping persistence
+- Excel-specific adapter layer
+- Django integration and review UI
+
 ## Current scope
 
-The current implementation covers the architecture/contracts scaffold plus a
-complete Phase 2 taxonomy database build and the deterministic resolver layer:
+The current implementation covers the architecture/contracts foundation plus a
+complete Phase 2 taxonomy database build, the deterministic resolver layer, and
+the supervised fuzzy fallback:
 
 - layered architecture boundaries
 - package-first resolver foundation
@@ -20,11 +41,11 @@ complete Phase 2 taxonomy database build and the deterministic resolver layer:
 - exact scientific, synonym, and normalized deterministic resolution
 - lineage retrieval from the materialized cache
 - provided-level conflict signaling for deterministic matches
+- supervised fuzzy suggestions for unresolved non-vague names using RapidFuzz
 - thin CLI wrappers for local use
 
 The following phases are intentionally not implemented yet:
 
-- fuzzy suggestion scoring
 - reviewed mapping persistence
 - Excel adapter
 - Django app and review UI
@@ -52,6 +73,7 @@ docs/
   architecture.md
   contracts.md
   deterministic-resolution.md
+  fuzzy-suggestions.md
   taxonomy-database.md
   workflow.md
 ```
@@ -84,15 +106,22 @@ python -m taxonomy_tools.build_ncbi_taxonomy \
   --db data/ncbi_taxonomy.sqlite
 ```
 
-Resolve one name through the scaffolded service:
+Resolve one name through the local resolver service:
 
 ```bash
 python -m taxonomy_tools.resolve_name_cli "Faecalibacterium prausnitzii" --db data/ncbi_taxonomy.sqlite --level species
 ```
 
-At this stage deterministic resolution is implemented. Fuzzy suggestions,
-reviewed mapping persistence, Excel import, and Django workflow remain for
-later phases.
+At this stage deterministic resolution and supervised fuzzy suggestions are
+implemented. Reviewed mapping persistence, Excel import, and Django workflow
+remain for later phases.
+
+The fuzzy layer now prefers `RapidFuzz`. Install project dependencies before
+running the resolver outside this environment:
+
+```bash
+python -m pip install -e .
+```
 
 The build CLI now reports progress for both:
 
@@ -102,8 +131,9 @@ The build CLI now reports progress for both:
 
 ## Documentation
 
-- [Architecture foundation](docs/architecture.md)
+- [Architecture](docs/architecture.md)
 - [Internal contracts](docs/contracts.md)
 - [Deterministic resolution](docs/deterministic-resolution.md)
+- [Fuzzy suggestions](docs/fuzzy-suggestions.md)
 - [Taxonomy database builder](docs/taxonomy-database.md)
 - [Roadmap source](docs/workflow.md)
