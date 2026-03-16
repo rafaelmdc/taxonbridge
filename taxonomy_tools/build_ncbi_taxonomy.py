@@ -39,6 +39,26 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def configure_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    """Register the `build-db` subcommand for the unified CLI."""
+
+    parser = subparsers.add_parser("build-db", help="Build the taxonomy SQLite database")
+    parser.add_argument("--dump", required=True, help="Path to NCBI taxdump.tar.gz")
+    parser.add_argument("--db", required=True, help="Output SQLite database path")
+    parser.add_argument(
+        "--download",
+        action="store_true",
+        help="Download the NCBI taxdump archive to --dump before building the database",
+    )
+    parser.add_argument(
+        "--download-url",
+        default=DEFAULT_TAXDUMP_URL,
+        help="Source URL used when --download is enabled",
+    )
+    parser.add_argument("--report-json", help="Optional path for writing the build report as JSON")
+    parser.set_defaults(func=run)
+
+
 def _format_size(num_bytes: int) -> str:
     """Format byte counts into a compact human-readable string."""
 
@@ -155,10 +175,9 @@ def download_taxdump(
         print(final_suffix, file=stream, flush=True)
 
 
-def main() -> None:
-    """Run the CLI bootstrap command."""
+def run(args: argparse.Namespace) -> None:
+    """Build the taxonomy reference database from parsed CLI arguments."""
 
-    args = parse_args()
     dump_path = Path(args.dump)
     progress_printer = BuildProgressPrinter()
     if args.download:
@@ -185,6 +204,12 @@ def main() -> None:
     print(f"Synonyms/non-scientific names: {summary.synonym_count}")
     print(f"Lineage cache rows: {summary.lineage_cache_count}")
     print(f"Validation checks: {json.dumps(summary.validation_checks, sort_keys=True)}")
+
+
+def main() -> None:
+    """Run the legacy standalone build command."""
+
+    run(parse_args())
 
 
 if __name__ == "__main__":

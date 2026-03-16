@@ -7,6 +7,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from .cache import lookup_reviewed_mapping, record_reviewed_mapping
+from .db import fetch_all_metadata
 from .exact import resolve_exact
 from .fuzzy import suggest_fuzzy_candidates
 from .lineage import get_lineage_for_taxid
@@ -139,6 +140,11 @@ class TaxonomyResolverService:
             taxonomy_db_path=self.taxonomy_db_path,
             cache_db_path=self.cache_db_path,
         )
+
+    def get_taxonomy_build_info(self) -> dict[str, str]:
+        """Expose taxonomy build metadata for CLI and later integration checks."""
+
+        return fetch_all_metadata(self.taxonomy_db_path)
 
     def _resolve_transformed_exact(self, request: ResolveRequest) -> ResolveResult | None:
         """Try configured fallback transforms before fuzzy matching or vague failure.

@@ -1,33 +1,37 @@
-"""CLI entry point for resolving one organism string."""
+"""Legacy wrapper for the standalone resolve-name command."""
 
 from __future__ import annotations
 
 import argparse
-import json
 
-from taxonomy_resolver.schemas import ResolveRequest
-from taxonomy_resolver.service import TaxonomyResolverService
+from .resolve_name import run
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse CLI arguments for single-name resolution."""
+    """Parse arguments using the unified CLI command shape.
+
+    This wrapper preserves the existing module entry point while delegating the
+    real work to the unified `resolve-name` subcommand.
+    """
 
     parser = argparse.ArgumentParser(description="Resolve one organism name.")
     parser.add_argument("name", help="Organism name to resolve")
     parser.add_argument("--db", required=True, help="Path to taxonomy SQLite database")
+    parser.add_argument("--cache-db", help="Optional separate reviewed-mapping SQLite database")
     parser.add_argument("--level", help="Optional curator-provided taxonomic level")
+    parser.add_argument(
+        "--no-fuzzy",
+        action="store_true",
+        help="Disable fuzzy fallback and return only deterministic/cache outcomes",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
-    """Resolve one name and print the structured result as JSON."""
+    """Run the legacy standalone resolve-name command."""
 
     args = parse_args()
-    service = TaxonomyResolverService(taxonomy_db_path=args.db)
-    result = service.resolve_name(
-        ResolveRequest(original_name=args.name, provided_level=args.level)
-    )
-    print(json.dumps(result.to_dict(), indent=2))
+    run(args)
 
 
 if __name__ == "__main__":

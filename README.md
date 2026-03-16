@@ -18,7 +18,8 @@ Implemented now:
 - supervised fuzzy fallback with RapidFuzz-backed scoring
 - reviewed mapping persistence with conservative cache reuse
 - JSON-like request/response contracts
-- local CLI for build and single-name resolution
+- local CLI for build, single-name resolution, batch resolution, lineage
+  inspection, decision application, and metadata inspection
 
 Still intentionally deferred:
 
@@ -69,7 +70,14 @@ taxonomy_resolver/
   service.py
 
 taxonomy_tools/
+  apply_decisions.py
+  build_info.py
+  cli.py
+  common.py
   build_ncbi_taxonomy.py
+  inspect_lineage.py
+  resolve_batch.py
+  resolve_name.py
   resolve_name_cli.py
 
 docs/
@@ -115,6 +123,15 @@ Resolve one name through the local resolver service:
 
 ```bash
 python -m taxonomy_tools.resolve_name_cli "Faecalibacterium prausnitzii" --db data/ncbi_taxonomy.sqlite --level species
+```
+
+Unified CLI examples:
+
+```bash
+python -m taxonomy_tools.cli resolve-name "Faecalibacterium prausnitzii" --db data/ncbi_taxonomy.sqlite --level species
+python -m taxonomy_tools.cli resolve-batch --db data/ncbi_taxonomy.sqlite --input data/resolve_requests.json --output data/resolve_results.json
+python -m taxonomy_tools.cli inspect-lineage --db data/ncbi_taxonomy.sqlite --taxid 1263
+python -m taxonomy_tools.cli build-info --db data/ncbi_taxonomy.sqlite
 ```
 
 At this stage deterministic resolution and supervised fuzzy suggestions are

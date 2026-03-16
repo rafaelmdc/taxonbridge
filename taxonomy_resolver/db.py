@@ -234,6 +234,14 @@ def get_metadata_value(db_path: Path | str, key: str) -> str | None:
     return None if row is None else str(row["value"])
 
 
+def fetch_all_metadata(db_path: Path | str) -> dict[str, str]:
+    """Return all metadata key/value pairs from the SQLite store."""
+
+    with connect(db_path) as connection:
+        rows = connection.execute("SELECT key, value FROM metadata ORDER BY key").fetchall()
+    return {str(row["key"]): str(row["value"]) for row in rows}
+
+
 def insert_reviewed_mapping(db_path: Path | str, row: tuple[object, ...]) -> None:
     """Persist one reviewed mapping record."""
 
