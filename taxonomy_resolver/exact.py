@@ -14,7 +14,14 @@ from pathlib import Path
 from .db import fetch_name_matches
 from .lineage import get_lineage_for_taxid
 from .normalize import normalize_level, normalize_name
-from .policy import MatchType, ResolutionStatus, WarningCode
+from .policy import (
+    MatchType,
+    ResolutionStatus,
+    WarningCode,
+    allows_auto_accept,
+    apply_level_conflict_policy,
+    requires_review,
+)
 from .schemas import CandidateMatch, ResolveRequest, ResolveResult
 
 
@@ -52,18 +59,12 @@ def _finalize_unique_result(
 ) -> ResolveResult:
     """Assemble the single-match deterministic response."""
 
-    provided_level = normalize_level(request.provided_level)
-    matched_rank = normalize_level(str(row["rank"]))
-    result_warnings = list(warnings or [])
-    review_required = False
-    auto_accept = True
-    final_status = status
-
-    if provided_level is not None and matched_rank != provided_level:
-        result_warnings.append(WarningCode.PROVIDED_LEVEL_CONFLICT)
-        review_required = True
-        auto_accept = False
-        final_status = ResolutionStatus.LEVEL_CONFLICT
+    final_status, result_warnings = apply_level_conflict_policy(
+        status,
+        list(warnings or []),
+        provided_level=request.provided_level,
+        matched_rank=str(row["rank"]),
+    )
 
     taxid = int(row["taxid"])
     return ResolveResult(
@@ -71,8 +72,8 @@ def _finalize_unique_result(
         normalized_name=normalize_name(request.original_name),
         provided_level=request.provided_level,
         status=final_status,
-        review_required=review_required,
-        auto_accept=auto_accept,
+        review_required=requires_review(final_status),
+        auto_accept=allows_auto_accept(final_status),
         match_type=match_type,
         warnings=result_warnings,
         matched_taxid=taxid,
@@ -102,8 +103,8 @@ def _ambiguous_result(
         normalized_name=normalize_name(request.original_name),
         provided_level=request.provided_level,
         status=ResolutionStatus.MANUAL_REVIEW_REQUIRED,
-        review_required=True,
-        auto_accept=False,
+        review_required=requires_review(ResolutionStatus.MANUAL_REVIEW_REQUIRED),
+        auto_accept=allows_auto_accept(ResolutionStatus.MANUAL_REVIEW_REQUIRED),
         match_type=match_type,
         warnings=[warning],
         candidates=candidates,

@@ -74,6 +74,7 @@ docs/
   contracts.md
   deterministic-resolution.md
   fuzzy-suggestions.md
+  status-policy.md
   taxonomy-database.md
   workflow.md
 ```
@@ -135,5 +136,6 @@ The build CLI now reports progress for both:
 - [Internal contracts](docs/contracts.md)
 - [Deterministic resolution](docs/deterministic-resolution.md)
 - [Fuzzy suggestions](docs/fuzzy-suggestions.md)
+- [Status policy](docs/status-policy.md)
 - [Taxonomy database builder](docs/taxonomy-database.md)
 - [Roadmap source](docs/workflow.md)

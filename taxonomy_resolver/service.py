@@ -11,7 +11,14 @@ from .exact import resolve_exact
 from .fuzzy import suggest_fuzzy_candidates
 from .lineage import get_lineage_for_taxid
 from .normalize import looks_vague, normalize_name
-from .policy import MatchType, ResolutionStatus, WarningCode
+from .policy import (
+    MatchType,
+    ResolutionStatus,
+    WarningCode,
+    allows_auto_accept,
+    classify_fuzzy_status,
+    requires_review,
+)
 from .schemas import (
     BatchResolveRequest,
     BatchResolveResult,
@@ -38,13 +45,14 @@ class TaxonomyResolverService:
         normalized_name = normalize_name(request.original_name)
 
         if looks_vague(request.original_name):
+            status = ResolutionStatus.UNRESOLVED_VAGUE_LABEL
             return ResolveResult(
                 original_name=request.original_name,
                 normalized_name=normalized_name,
                 provided_level=request.provided_level,
-                status=ResolutionStatus.UNRESOLVED_VAGUE_LABEL,
-                review_required=True,
-                auto_accept=False,
+                status=status,
+                review_required=requires_review(status),
+                auto_accept=allows_auto_accept(status),
                 match_type=MatchType.NONE,
                 warnings=[WarningCode.VAGUE_LABEL_DETECTED],
             )
@@ -56,8 +64,8 @@ class TaxonomyResolverService:
                 normalized_name=normalized_name,
                 provided_level=request.provided_level,
                 status=cached.status,
-                review_required=False,
-                auto_accept=True,
+                review_required=requires_review(cached.status),
+                auto_accept=allows_auto_accept(cached.status) or cached.status == ResolutionStatus.CONFIRMED_BY_USER,
                 match_type=MatchType.CACHED,
                 warnings=list(cached.warnings) + [WarningCode.CACHED_DECISION_REUSED],
                 matched_taxid=cached.resolved_taxid,
@@ -77,31 +85,27 @@ class TaxonomyResolverService:
             else []
         )
         if candidates:
+            status, warnings = classify_fuzzy_status(len(candidates))
             return ResolveResult(
                 original_name=request.original_name,
                 normalized_name=normalized_name,
                 provided_level=request.provided_level,
-                status=ResolutionStatus.SUGGESTED_FUZZY_UNIQUE
-                if len(candidates) == 1
-                else ResolutionStatus.AMBIGUOUS_FUZZY_MULTIPLE,
-                review_required=True,
-                auto_accept=False,
+                status=status,
+                review_required=requires_review(status),
+                auto_accept=allows_auto_accept(status),
                 match_type=MatchType.FUZZY,
                 candidates=candidates,
-                warnings=(
-                    [WarningCode.MULTIPLE_FUZZY_CANDIDATES]
-                    if len(candidates) > 1
-                    else []
-                ),
+                warnings=warnings,
             )
 
+        status = ResolutionStatus.UNRESOLVED_NO_MATCH
         return ResolveResult(
             original_name=request.original_name,
             normalized_name=normalized_name,
             provided_level=request.provided_level,
-            status=ResolutionStatus.UNRESOLVED_NO_MATCH,
-            review_required=True,
-            auto_accept=False,
+            status=status,
+            review_required=requires_review(status),
+            auto_accept=allows_auto_accept(status),
             match_type=MatchType.NONE,
         )
 
