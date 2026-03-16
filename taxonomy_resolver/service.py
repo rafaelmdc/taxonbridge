@@ -6,7 +6,7 @@ from collections import Counter
 from dataclasses import asdict
 from pathlib import Path
 
-from .cache import lookup_reviewed_mapping
+from .cache import lookup_reviewed_mapping, record_reviewed_mapping
 from .exact import resolve_exact
 from .fuzzy import suggest_fuzzy_candidates
 from .lineage import get_lineage_for_taxid
@@ -26,6 +26,7 @@ from .schemas import (
     ResolveRequest,
     ResolveResult,
 )
+from .transforms import generate_transforms
 
 
 class TaxonomyResolverService:
@@ -44,20 +45,11 @@ class TaxonomyResolverService:
 
         normalized_name = normalize_name(request.original_name)
 
-        if looks_vague(request.original_name):
-            status = ResolutionStatus.UNRESOLVED_VAGUE_LABEL
-            return ResolveResult(
-                original_name=request.original_name,
-                normalized_name=normalized_name,
-                provided_level=request.provided_level,
-                status=status,
-                review_required=requires_review(status),
-                auto_accept=allows_auto_accept(status),
-                match_type=MatchType.NONE,
-                warnings=[WarningCode.VAGUE_LABEL_DETECTED],
-            )
-
-        cached = lookup_reviewed_mapping(request)
+        cached = lookup_reviewed_mapping(
+            request,
+            taxonomy_db_path=self.taxonomy_db_path,
+            cache_db_path=self.cache_db_path,
+        )
         if cached:
             return ResolveResult(
                 original_name=request.original_name,
@@ -78,6 +70,23 @@ class TaxonomyResolverService:
         exact_result = resolve_exact(request, self.taxonomy_db_path)
         if exact_result:
             return exact_result
+
+        transformed_result = self._resolve_transformed_exact(request)
+        if transformed_result:
+            return transformed_result
+
+        if looks_vague(request.original_name):
+            status = ResolutionStatus.UNRESOLVED_VAGUE_LABEL
+            return ResolveResult(
+                original_name=request.original_name,
+                normalized_name=normalized_name,
+                provided_level=request.provided_level,
+                status=status,
+                review_required=requires_review(status),
+                auto_accept=allows_auto_accept(status),
+                match_type=MatchType.NONE,
+                warnings=[WarningCode.VAGUE_LABEL_DETECTED],
+            )
 
         candidates = (
             suggest_fuzzy_candidates(request, self.taxonomy_db_path)
@@ -125,4 +134,67 @@ class TaxonomyResolverService:
     def record_decision(self, _decision: DecisionRecord) -> None:
         """Persist reviewed decisions when the cache backend is implemented."""
 
-        raise NotImplementedError("Decision persistence will be implemented in Phase 9.")
+        record_reviewed_mapping(
+            _decision,
+            taxonomy_db_path=self.taxonomy_db_path,
+            cache_db_path=self.cache_db_path,
+        )
+
+    def _resolve_transformed_exact(self, request: ResolveRequest) -> ResolveResult | None:
+        """Try configured fallback transforms before fuzzy matching or vague failure.
+
+        Any transformed hit remains review-only even if the transformed name
+        resolves cleanly, because the original observed string did not match
+        directly.
+        """
+
+        for transform in generate_transforms(request.original_name):
+            transformed_request = ResolveRequest(
+                original_name=transform.transformed_name,
+                provided_level=request.provided_level,
+                allow_fuzzy=False,
+                source=request.source,
+                context=request.context,
+            )
+            transformed_result = resolve_exact(transformed_request, self.taxonomy_db_path)
+            if transformed_result is None:
+                continue
+
+            status = transformed_result.status
+            if status in {
+                ResolutionStatus.RESOLVED_EXACT_SCIENTIFIC,
+                ResolutionStatus.RESOLVED_EXACT_SYNONYM,
+                ResolutionStatus.RESOLVED_NORMALIZED,
+            }:
+                status = ResolutionStatus.MANUAL_REVIEW_REQUIRED
+
+            metadata = dict(transformed_result.metadata)
+            metadata["transform_rule"] = transform.rule_name
+            metadata["transformed_name"] = transform.transformed_name
+            metadata["transformed_base_status"] = transformed_result.status.value
+
+            warnings = list(transformed_result.warnings)
+            for warning in transform.warnings:
+                if warning not in warnings:
+                    warnings.append(warning)
+
+            return ResolveResult(
+                original_name=request.original_name,
+                normalized_name=normalize_name(request.original_name),
+                provided_level=request.provided_level,
+                status=status,
+                review_required=True,
+                auto_accept=False,
+                match_type=transformed_result.match_type,
+                warnings=warnings,
+                matched_taxid=transformed_result.matched_taxid,
+                matched_name=transformed_result.matched_name,
+                matched_rank=transformed_result.matched_rank,
+                score=transformed_result.score,
+                candidates=transformed_result.candidates,
+                lineage=transformed_result.lineage,
+                cache_applied=transformed_result.cache_applied,
+                metadata=metadata,
+            )
+
+        return None

@@ -180,6 +180,41 @@ class DeterministicResolutionTests(unittest.TestCase):
 
         self.assertEqual(result.status, ResolutionStatus.UNRESOLVED_NO_MATCH)
 
+    def test_transformed_placeholder_suffix_recovers_base_taxon(self) -> None:
+        result = self.service.resolve_name(
+            ResolveRequest(
+                original_name="Faecalibacterium sp.",
+                provided_level="species",
+                allow_fuzzy=True,
+            )
+        )
+
+        self.assertEqual(result.status, ResolutionStatus.LEVEL_CONFLICT)
+        self.assertTrue(result.review_required)
+        self.assertFalse(result.auto_accept)
+        self.assertEqual(result.matched_taxid, 239934)
+        self.assertEqual(result.matched_rank, "genus")
+        self.assertIn(WarningCode.TRANSFORM_APPLIED, result.warnings)
+        self.assertIn(WarningCode.VAGUE_LABEL_DETECTED, result.warnings)
+        self.assertIn(WarningCode.PLACEHOLDER_LABEL_DETECTED, result.warnings)
+        self.assertEqual(result.metadata["transform_rule"], "strip_placeholder_suffix")
+        self.assertEqual(result.metadata["transformed_name"], "Faecalibacterium")
+
+    def test_transformed_exact_hit_stays_manual_review_when_no_level_conflict(self) -> None:
+        result = self.service.resolve_name(
+            ResolveRequest(
+                original_name="Faecalibacterium spp.",
+                provided_level="genus",
+                allow_fuzzy=True,
+            )
+        )
+
+        self.assertEqual(result.status, ResolutionStatus.MANUAL_REVIEW_REQUIRED)
+        self.assertTrue(result.review_required)
+        self.assertFalse(result.auto_accept)
+        self.assertEqual(result.matched_taxid, 239934)
+        self.assertIn(WarningCode.TRANSFORM_APPLIED, result.warnings)
+
     def _write_taxdump_archive(self, archive_path: Path) -> None:
         """Create a small tar.gz archive matching the builder's expectations."""
 

@@ -23,6 +23,7 @@ The service only reaches fuzzy suggestion if:
 - no exact scientific match is found
 - no exact synonym match is found
 - no normalized exact match is found
+- no configured transform produces a deterministic review-safe hit
 
 If fuzzy suggestions are returned:
 

@@ -48,6 +48,7 @@ class WarningCode(StrEnum):
     MULTIPLE_FUZZY_CANDIDATES = "multiple_fuzzy_candidates"
     SYNONYM_MATCHED = "synonym_matched"
     NORMALIZED_MATCHED = "normalized_matched"
+    TRANSFORM_APPLIED = "transform_applied"
     VAGUE_LABEL_DETECTED = "vague_label_detected"
     PLACEHOLDER_LABEL_DETECTED = "placeholder_label_detected"
     CACHED_DECISION_REUSED = "cached_decision_reused"

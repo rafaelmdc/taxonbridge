@@ -53,13 +53,15 @@ It does not own taxonomy policy.
 2. Convert rows into `ResolveRequest` items.
 3. Submit requests to `TaxonomyResolverService`.
 4. Run deterministic resolution first.
-5. Run supervised fuzzy suggestions only if deterministic lookup fails and the
-   input is not a vague label.
-6. Auto-accept only safe deterministic or cache-backed outcomes.
-7. Send uncertain outcomes to a review queue.
-8. Record user decisions in reviewed mapping storage.
-9. Create or link canonical organism records downstream.
-10. Link findings rows back to canonical organisms while preserving provenance.
+5. Apply configured fallback transforms for removable affixes when direct exact
+   lookup fails.
+6. Run supervised fuzzy suggestions only if deterministic and transform-based
+   lookup both fail and the input is not unresolved-vague.
+7. Auto-accept only safe deterministic or cache-backed outcomes.
+8. Send uncertain outcomes to a review queue.
+9. Record user decisions in reviewed mapping storage.
+10. Create or link canonical organism records downstream.
+11. Link findings rows back to canonical organisms while preserving provenance.
 
 ## Internal contract
 
@@ -89,6 +91,7 @@ The current repository includes:
 - materialized lineage cache generation
 - build metadata and validation reporting
 - deterministic exact, synonym, and normalized lookup
+- configurable transform stage for removable affixes
 - supervised fuzzy fallback candidate generation
 - RapidFuzz-backed fuzzy scoring with a bounded SQLite candidate pool
 - lineage retrieval from cached lineage JSON

@@ -176,6 +176,39 @@ reserved for the later reviewed-mapping layer.
 }
 ```
 
+## Transform-assisted deterministic result
+
+```json
+{
+  "original_name": "Ruminococcus sp.",
+  "normalized_name": "ruminococcus sp.",
+  "provided_level": "species",
+  "status": "level_conflict",
+  "review_required": true,
+  "auto_accept": false,
+  "match_type": "exact_scientific",
+  "warnings": [
+    "provided_level_conflict",
+    "transform_applied",
+    "vague_label_detected",
+    "placeholder_label_detected"
+  ],
+  "matched_taxid": 1263,
+  "matched_name": "Ruminococcus",
+  "matched_rank": "genus",
+  "score": 1.0,
+  "candidates": [],
+  "lineage": [],
+  "cache_applied": false,
+  "metadata": {
+    "matched_input_name": "Ruminococcus",
+    "transform_rule": "strip_placeholder_suffix",
+    "transformed_name": "Ruminococcus",
+    "transformed_base_status": "level_conflict"
+  }
+}
+```
+
 ## Vague-label result
 
 ```json

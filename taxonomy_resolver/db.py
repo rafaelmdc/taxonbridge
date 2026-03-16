@@ -223,6 +223,75 @@ def upsert_metadata(db_path: Path | str, items: dict[str, str]) -> None:
         connection.commit()
 
 
+def get_metadata_value(db_path: Path | str, key: str) -> str | None:
+    """Return one metadata value from the SQLite store if it exists."""
+
+    with connect(db_path) as connection:
+        row = connection.execute(
+            "SELECT value FROM metadata WHERE key = ?",
+            (key,),
+        ).fetchone()
+    return None if row is None else str(row["value"])
+
+
+def insert_reviewed_mapping(db_path: Path | str, row: tuple[object, ...]) -> None:
+    """Persist one reviewed mapping record."""
+
+    with connect(db_path) as connection:
+        connection.execute(
+            """
+            INSERT INTO reviewed_mappings(
+                original_name,
+                normalized_name,
+                provided_level,
+                resolved_taxid,
+                matched_scientific_name,
+                match_type,
+                status,
+                score,
+                decision_action,
+                taxonomy_build_version,
+                reviewer,
+                warnings_json,
+                notes,
+                created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            row,
+        )
+        connection.commit()
+
+
+def fetch_reusable_reviewed_mapping(
+    db_path: Path | str,
+    *,
+    normalized_name: str,
+    provided_level: str | None,
+    taxonomy_build_version: str,
+) -> sqlite3.Row | None:
+    """Return the latest reviewed mapping eligible for conservative reuse."""
+
+    with connect(db_path) as connection:
+        return connection.execute(
+            """
+            SELECT *
+            FROM reviewed_mappings
+            WHERE normalized_name = ?
+              AND (
+                    (provided_level = ?)
+                    OR (provided_level IS NULL AND ? IS NULL)
+                  )
+              AND taxonomy_build_version = ?
+              AND decision_action IN ('confirm', 'choose_candidate')
+              AND status = 'confirmed_by_user'
+              AND resolved_taxid IS NOT NULL
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1
+            """,
+            (normalized_name, provided_level, provided_level, taxonomy_build_version),
+        ).fetchone()
+
+
 def fetch_name_matches(
     db_path: Path | str,
     *,

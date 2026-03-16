@@ -1,21 +1,112 @@
 """Reviewed mapping cache interface.
 
-The first scaffold defines the boundary only. Phase 9 will implement reuse
-rules and storage-backed lookup/write behavior.
+Phase 9 implements conservative reuse rules and storage-backed
+lookup/write behavior.
 """
 
 from __future__ import annotations
 
-from .schemas import DecisionRecord, ResolveRequest
+import json
+from pathlib import Path
+
+from .db import (
+    fetch_reusable_reviewed_mapping,
+    get_metadata_value,
+    initialize_database,
+    insert_reviewed_mapping,
+)
+from .normalize import normalize_level, normalize_name
+from .policy import MatchType, ResolutionStatus, WarningCode
+from .schemas import DecisionAction, DecisionRecord, ResolveRequest
 
 
-def lookup_reviewed_mapping(_request: ResolveRequest) -> DecisionRecord | None:
-    """Return a reusable reviewed mapping if one is available."""
+def _resolve_cache_db_path(
+    taxonomy_db_path: str | Path,
+    cache_db_path: str | Path | None,
+) -> Path:
+    """Resolve the SQLite path used for reviewed mapping persistence."""
 
-    return None
+    return Path(cache_db_path) if cache_db_path is not None else Path(taxonomy_db_path)
 
 
-def record_reviewed_mapping(_decision: DecisionRecord) -> None:
-    """Persist a reviewed mapping decision when implemented."""
+def lookup_reviewed_mapping(
+    request: ResolveRequest,
+    *,
+    taxonomy_db_path: str | Path,
+    cache_db_path: str | Path | None = None,
+) -> DecisionRecord | None:
+    """Return a conservatively reusable reviewed mapping if one is available.
 
-    return None
+    Current reuse rules are intentionally strict:
+
+    - same normalized name
+    - same normalized provided level, including both null
+    - same taxonomy build version
+    - prior reviewed decision was a confirm-like action
+    - prior reviewed status is `confirmed_by_user`
+    """
+
+    resolved_cache_db_path = _resolve_cache_db_path(taxonomy_db_path, cache_db_path)
+    initialize_database(resolved_cache_db_path)
+    taxonomy_build_version = get_metadata_value(taxonomy_db_path, "taxonomy_build_version")
+    if taxonomy_build_version is None:
+        return None
+
+    row = fetch_reusable_reviewed_mapping(
+        resolved_cache_db_path,
+        normalized_name=normalize_name(request.original_name),
+        provided_level=normalize_level(request.provided_level),
+        taxonomy_build_version=taxonomy_build_version,
+    )
+    if row is None:
+        return None
+
+    return DecisionRecord(
+        action=DecisionAction(str(row["decision_action"])),
+        original_name=row["original_name"],
+        normalized_name=row["normalized_name"],
+        provided_level=row["provided_level"],
+        taxonomy_build_version=row["taxonomy_build_version"],
+        reviewer=row["reviewer"],
+        resolved_taxid=row["resolved_taxid"],
+        matched_scientific_name=row["matched_scientific_name"],
+        match_type=MatchType(str(row["match_type"])),
+        status=ResolutionStatus(str(row["status"])),
+        score=row["score"],
+        warnings=[WarningCode(value) for value in json.loads(row["warnings_json"])],
+        notes=row["notes"],
+        created_at=row["created_at"],
+    )
+
+
+def record_reviewed_mapping(
+    decision: DecisionRecord,
+    *,
+    taxonomy_db_path: str | Path,
+    cache_db_path: str | Path | None = None,
+) -> None:
+    """Persist a reviewed mapping decision for later conservative reuse."""
+
+    resolved_cache_db_path = _resolve_cache_db_path(taxonomy_db_path, cache_db_path)
+    initialize_database(resolved_cache_db_path)
+    insert_reviewed_mapping(
+        resolved_cache_db_path,
+        (
+            decision.original_name,
+            normalize_name(decision.original_name)
+            if not decision.normalized_name
+            else decision.normalized_name,
+            normalize_level(decision.provided_level),
+            decision.resolved_taxid,
+            decision.matched_scientific_name,
+            decision.match_type.value,
+            decision.status.value,
+            decision.score,
+            decision.action.value,
+            decision.taxonomy_build_version,
+            decision.reviewer,
+            json.dumps([warning.value for warning in decision.warnings]),
+            decision.notes,
+            decision.created_at,
+        ),
+    )

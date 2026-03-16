@@ -13,6 +13,9 @@ The resolver processes a name in this order:
 
 The current repository implements steps 1 through 3.
 
+Between deterministic exact lookup and fuzzy matching, the resolver now also
+supports a small configurable transform stage for review-safe fallback rules.
+
 ## Normalization rules
 
 Normalization is conservative. It currently does:
@@ -77,6 +80,29 @@ It returns:
 - review-ready candidate entries with lineage and rank
 
 The provided level is only used as a soft sort signal for candidate ordering.
+
+## Transform stage
+
+If direct deterministic lookup fails, the resolver can apply configured
+secondary transforms before giving up or moving to fuzzy matching.
+
+These transforms are:
+
+- explicit
+- ordered
+- metadata-visible
+- review-only when they produce a hit
+
+The current configuration supports removable affixes such as placeholder
+suffixes. For example, a configured suffix rule can turn `Genus sp.` into
+`Genus` for a second deterministic lookup pass.
+
+Important:
+
+- this does not silently change the original observed string
+- transformed hits are never auto-accepted just because the transform worked
+- the result metadata records which transform fired and which transformed name
+  was used
 
 ## Provided level handling
 

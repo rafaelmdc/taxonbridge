@@ -14,7 +14,9 @@ Implemented now:
 - deterministic resolution:
   scientific name, synonym, normalized exact
 - soft `provided_level` validation with `level_conflict`
+- configurable fallback transforms before fuzzy matching
 - supervised fuzzy fallback with RapidFuzz-backed scoring
+- reviewed mapping persistence with conservative cache reuse
 - JSON-like request/response contracts
 - local CLI for build and single-name resolution
 
@@ -41,6 +43,7 @@ the supervised fuzzy fallback:
 - exact scientific, synonym, and normalized deterministic resolution
 - lineage retrieval from the materialized cache
 - provided-level conflict signaling for deterministic matches
+- configurable transform stage for removable affixes such as placeholder suffixes
 - supervised fuzzy suggestions for unresolved non-vague names using RapidFuzz
 - thin CLI wrappers for local use
 
@@ -74,6 +77,7 @@ docs/
   contracts.md
   deterministic-resolution.md
   fuzzy-suggestions.md
+  reviewed-mappings.md
   status-policy.md
   taxonomy-database.md
   workflow.md
@@ -136,6 +140,7 @@ The build CLI now reports progress for both:
 - [Internal contracts](docs/contracts.md)
 - [Deterministic resolution](docs/deterministic-resolution.md)
 - [Fuzzy suggestions](docs/fuzzy-suggestions.md)
+- [Reviewed mappings](docs/reviewed-mappings.md)
 - [Status policy](docs/status-policy.md)
 - [Taxonomy database builder](docs/taxonomy-database.md)
 - [Roadmap source](docs/workflow.md)
