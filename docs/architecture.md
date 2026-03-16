@@ -1,113 +1,108 @@
 # Architecture
 
-This document captures the current implementation boundary and the intended
-layering for the repository.
+Taxonbridge is structured as a reusable core package with thin interfaces on
+top. The design goal is to keep taxonomy logic in one place and make it usable
+from local scripts, CLI workflows, tests, and later application layers.
 
-## Layered design
+## High-level layers
 
-### Layer A: `taxonomy_resolver`
+### Core resolver: `taxonomy_resolver`
 
-The resolver package is the reusable core. It owns:
+This is the main product in this repository.
 
-- normalization rules
-- deterministic lookup order
-- fuzzy suggestion generation
-- lineage retrieval
-- status and warning policy
-- reviewed mapping reuse
-- stable request/response contracts
+Responsibilities:
 
-It must not know anything about:
+- build and query the local taxonomy reference database
+- normalize observed names
+- run deterministic resolution
+- apply explicit fallback transforms
+- generate supervised fuzzy suggestions
+- return lineage and taxonomy metadata
+- persist and reuse reviewed mappings
+- expose stable request/response contracts
 
-- workbook sheet names
-- Django models
-- project-specific import workflow
+Non-responsibilities:
 
-### Layer B: Django integration
+- workbook parsing
+- Django models and views
+- project-specific curation workflow state
 
-The later Django app will import `taxonomy_resolver` directly. Django owns:
+### CLI layer: `taxonomy_tools`
 
-- upload and batch lifecycle
-- review queue state
-- reviewer actions and audit history
-- canonical organisms and findings linkage
-- UI and optional internal API endpoints
+The CLI is a convenience interface over the resolver package.
 
-Django does not reimplement taxonomy matching logic.
+Responsibilities:
 
-### Layer C: Excel-specific adapter
+- parse command-line arguments
+- call `TaxonomyResolverService`
+- read and write JSON files for batch operations
+- show build progress for long-running database creation
 
-The Excel adapter will translate workbook rows into resolver requests and later
-map reviewed decisions back to source rows. It owns:
+Non-responsibilities:
 
-- workbook configuration
-- sheet and column discovery
-- provenance capture
-- queue deduplication across source rows
+- taxonomy matching logic
+- SQL query logic
+- policy decisions outside the core package
 
-It does not own taxonomy policy.
+### Future integration layers
 
-## Data flow
+The intended downstream consumers are:
 
-1. Read workbook rows with the Excel adapter.
-2. Convert rows into `ResolveRequest` items.
-3. Submit requests to `TaxonomyResolverService`.
-4. Run deterministic resolution first.
-5. Apply configured fallback transforms for removable affixes when direct exact
-   lookup fails.
-6. Run supervised fuzzy suggestions only if deterministic and transform-based
-   lookup both fail and the input is not unresolved-vague.
-7. Auto-accept only safe deterministic or cache-backed outcomes.
-8. Send uncertain outcomes to a review queue.
-9. Record user decisions in reviewed mapping storage.
-10. Create or link canonical organism records downstream.
-11. Link findings rows back to canonical organisms while preserving provenance.
+- an Excel-specific adapter that turns workbook rows into `ResolveRequest`
+  objects
+- a Django integration layer that stores queues, reviewer actions, canonical
+  organisms, and provenance
 
-## Internal contract
+Those layers should import the resolver package directly rather than duplicate
+matching logic.
 
-Even before an HTTP API exists, the resolver behaves as if it has one:
+## Runtime flow
 
-- all service methods take explicit request objects
-- all service methods return explicit response objects
-- contracts are JSON-serializable
-- statuses and warnings are centralized in `policy.py`
+Normal single-name resolution follows this order:
 
-This lets the same contract drive:
+1. normalize the observed name
+2. attempt reviewed-mapping reuse
+3. run deterministic exact/synonym/normalized lookup
+4. try configured transform-assisted deterministic fallback
+5. classify clearly vague inputs
+6. run fuzzy candidate suggestion if enabled
+7. return a stable `ResolveResult`
 
-- CLI commands
-- automated tests
-- Django services
-- future FastAPI wrappers
+This ordering is implemented in
+`taxonomy_resolver.service.TaxonomyResolverService`.
 
-## Current implemented scope
+## Data flow in a larger application
 
-The current repository includes:
+The expected downstream workflow is:
 
-- package layout for `taxonomy_resolver`
-- shared status, warning, and schema models
-- conservative normalization helpers
-- service orchestration boundaries
-- SQLite taxonomy schema plus real taxdump ingestion
-- materialized lineage cache generation
-- build metadata and validation reporting
-- deterministic exact, synonym, and normalized lookup
-- configurable transform stage for removable affixes
-- supervised fuzzy fallback candidate generation
-- RapidFuzz-backed fuzzy scoring with a bounded SQLite candidate pool
-- lineage retrieval from cached lineage JSON
-- thin CLI entry points for schema bootstrap and single-name resolution
+1. an adapter reads source data such as an Excel workbook
+2. adapter code creates `ResolveRequest` payloads
+3. the resolver returns `ResolveResult` payloads
+4. auto-acceptable outcomes can be accepted downstream
+5. review-required outcomes enter a review queue
+6. user decisions are persisted as reviewed mappings
+7. confirmed taxa are linked to canonical organism records downstream
+8. source findings retain their original observed names for provenance
 
-It does not yet include:
+## Module map
 
-- reviewed mapping persistence
-- Excel-specific import adapter
-- Django orchestration, review queue, and UI
+- `build.py`: database build orchestration
+- `db.py`: SQLite schema and query layer
+- `normalize.py`: conservative normalization and vague-label checks
+- `exact.py`: deterministic lookup
+- `transforms.py`: explicit fallback transforms
+- `fuzzy.py`: candidate suggestion
+- `lineage.py`: lineage retrieval
+- `policy.py`: shared statuses and warnings
+- `cache.py`: reviewed mapping reuse
+- `schemas.py`: dataclass contracts
+- `service.py`: orchestration surface
 
-## Design notes
+## Why the architecture is shaped this way
 
-- Deterministic logic stays ahead of fuzzy logic at the service layer.
-- The resolver remains workbook-agnostic and Django-agnostic.
-- The current fuzzy layer intentionally uses the existing `normalized_name`
-  index plus a narrowed candidate pool instead of a separate FTS/search index.
-  That keeps build complexity down until there is evidence the bounded query is
-  the bottleneck.
+- The resolver is package-first so it can be tested and used without Django.
+- The CLI is thin so there is only one implementation of taxonomy behavior.
+- The SQLite database is local and reproducible, which avoids live dependency
+  on NCBI during normal operation.
+- The contracts are JSON-serializable so the same shapes can be reused if the
+  package is later wrapped in an HTTP API.

@@ -1,93 +1,78 @@
-# Fuzzy Suggestions
+# Fuzzy Matching
 
-This document covers the currently implemented supervised fuzzy fallback.
+Fuzzy matching in Taxonbridge is a supervised fallback. It exists to surface
+good review candidates for near-misses, not to silently override deterministic
+resolution.
 
-## Scope
+## When fuzzy matching runs
 
-Fuzzy matching is fallback only. It runs only after deterministic resolution
-fails, and it never auto-accepts a taxon.
+The resolver only reaches fuzzy matching when all of the following are true:
 
-The current implementation is meant to surface review-ready candidates for:
+- reviewed mapping reuse did not apply
+- deterministic lookup did not resolve the name
+- transform-assisted deterministic fallback did not resolve the name
+- the input was not classified as an unresolved vague label
+- `allow_fuzzy` is enabled on the request
 
-- likely typos
-- near-exact misspellings
-- low-noise variants that conservative normalization does not recover
+## Result policy
 
-It does not silently resolve vague labels.
+Fuzzy results are always review-only.
 
-## Current behavior
+- one candidate: `suggested_fuzzy_unique`
+- multiple candidates: `ambiguous_fuzzy_multiple`
+- no candidates: `unresolved_no_match`
 
-The service only reaches fuzzy suggestion if:
+The resolver does not auto-accept a taxon because it scored well in fuzzy
+matching.
 
-- the input is not classified as a vague label
-- no exact scientific match is found
-- no exact synonym match is found
-- no normalized exact match is found
-- no configured transform produces a deterministic review-safe hit
+## Candidate pool strategy
 
-If fuzzy suggestions are returned:
+The candidate pool comes from `taxon_names` in SQLite and is intentionally
+bounded before scoring. This keeps fuzzy matching practical without introducing
+an additional persistent search structure.
 
-- one strong candidate becomes `suggested_fuzzy_unique`
-- multiple near-tied candidates become `ambiguous_fuzzy_multiple`
-- no plausible candidates becomes `unresolved_no_match`
+Current behavior:
 
-All fuzzy outcomes remain review-only:
-
-- `review_required = true`
-- `auto_accept = false`
-
-## Candidate pool
-
-The current candidate pool is built from the SQLite `taxon_names` table using
-conservative prefix-based filtering on `normalized_name`. This keeps the search
-bounded without adding a separate search index yet.
-
-Candidates are deduplicated by taxid so the service returns one best fuzzy
-candidate per canonical taxon.
+- query by normalized-name prefixes and related bounded filters
+- deduplicate candidate rows by canonical taxid
+- keep the best candidate per taxon
 
 ## Scoring
 
-The current implementation prefers `RapidFuzz` for scoring and keeps a small
-standard-library fallback so the package can still import in constrained
-environments.
+The implementation prefers RapidFuzz and keeps a standard-library fallback so
+the package can still import in constrained environments.
 
-The score combines:
+The current score combines:
 
 - direct string similarity
-- token-order-insensitive similarity
-- partial-match similarity
-- a penalty when the candidate has extra or missing tokens relative to the
-  input, which helps prefer plain species names over longer suffix variants for
-  simple typo cases
+- token-set similarity
+- partial similarity
+- a small token-count penalty for extra or missing terms
 - a small preference for scientific-name rows
-- a small boost when candidate rank matches `provided_level`
+- a small boost when candidate rank aligns with `provided_level`
 
-The score is used only to rank and filter review suggestions.
+This produces ranked candidates, not authoritative decisions.
 
-## Search index decision
+## Why there is no dedicated search index yet
 
-This repository does not currently build a dedicated fuzzy search index.
+The repository does not currently build an additional fuzzy search index.
 
 That is intentional:
 
-- typo-oriented retrieval benefits more from a strong similarity scorer than
-  from a plain token full-text index
-- SQLite FTS is useful for token and prefix lookup, but it does not directly
-  solve edit-distance ranking
-- maintaining a second persistent search structure would increase build time and
-  storage before there is evidence that the current bounded candidate-pool query
-  is the bottleneck
+- edit-distance ranking is the hard part, and RapidFuzz already solves that
+- SQLite FTS would help token retrieval, but not replace similarity scoring
+- another persistent index would increase build time and storage
+- there is not yet evidence that the current bounded candidate-pool query is
+  the main bottleneck
 
-The existing `normalized_name` index plus a narrowed candidate pool is the
-current compromise.
+If fuzzy retrieval later becomes a performance bottleneck at full NCBI scale,
+an additional retrieval index can be introduced without changing the contract.
 
-## Current limits
+## Known limits
 
-This phase does not yet include:
+The current fuzzy layer does not yet include:
 
-- a dedicated search index for large-scale fuzzy retrieval
-- decision-memory reuse in fuzzy ranking
-- organism-domain-specific rewrite rules
-- domain-specific abbreviation expansion or rewrite heuristics
-
-Those can be added later without changing the deterministic-first contract.
+- domain-specific abbreviation expansion
+- learned ranking from reviewed decisions
+- search-index-backed retrieval
+- project-specific rewrite heuristics

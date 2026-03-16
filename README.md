@@ -1,163 +1,159 @@
 # Taxonbridge
 
-Taxonbridge is the local-first taxonomy resolution engine for microbiome
-curation workflows. This repository is the reusable core library, not the final
-application repository.
+Taxonbridge is a local-first taxonomy resolution engine for microbiome curation
+workflows. It builds a reusable SQLite reference database from the NCBI
+taxdump, resolves organism names against that database, returns stable
+JSON-serializable results, and preserves reviewed mapping decisions for reuse.
 
-## Implementation status
+## What it does
 
-Implemented now:
+- builds a local SQLite taxonomy reference database from `names.dmp` and
+  `nodes.dmp`
+- resolves names through deterministic exact, synonym, and normalized lookup
+- applies conservative fallback transforms before fuzzy matching
+- surfaces supervised fuzzy suggestions with RapidFuzz
+- returns stable request/response contracts for CLI, tests, scripts, and future
+  integration layers
+- stores reviewed mapping decisions and reuses them conservatively
+- exposes a thin CLI for build, lookup, lineage inspection, batch processing,
+  decision application, and build metadata inspection
 
-- local NCBI taxdump ingestion into SQLite
-- reproducible build metadata and validation reporting
-- materialized lineage cache
-- deterministic resolution:
-  scientific name, synonym, normalized exact
-- soft `provided_level` validation with `level_conflict`
-- configurable fallback transforms before fuzzy matching
-- supervised fuzzy fallback with RapidFuzz-backed scoring
-- reviewed mapping persistence with conservative cache reuse
-- JSON-like request/response contracts
-- local CLI for build, single-name resolution, batch resolution, lineage
-  inspection, decision application, and metadata inspection
+## What it does not do
 
-Still intentionally deferred:
+- call live NCBI APIs during normal resolution
+- contain the final Excel import workflow
+- contain the final Django review application or UI
+- replace human review for ambiguous or fuzzy cases
 
-- reviewed mapping persistence
-- Excel-specific adapter layer
-- Django integration and review UI
+## Requirements
 
-## Current scope
+- Python `3.11+`
+- SQLite, via the Python standard library
 
-The current implementation covers the architecture/contracts foundation plus a
-complete Phase 2 taxonomy database build, the deterministic resolver layer, and
-the supervised fuzzy fallback:
-
-- layered architecture boundaries
-- package-first resolver foundation
-- stable request/response contracts
-- shared status and warning enums
-- normalization helpers
-- taxdump ingestion into the taxonomy reference database
-- materialized lineage cache generation
-- build metadata and validation reporting
-- exact scientific, synonym, and normalized deterministic resolution
-- lineage retrieval from the materialized cache
-- provided-level conflict signaling for deterministic matches
-- configurable transform stage for removable affixes such as placeholder suffixes
-- supervised fuzzy suggestions for unresolved non-vague names using RapidFuzz
-- thin CLI wrappers for local use
-
-The following phases are intentionally not implemented yet:
-
-- reviewed mapping persistence
-- Excel adapter
-- Django app and review UI
-
-## Repository layout
-
-```text
-taxonomy_resolver/
-  __init__.py
-  cache.py
-  db.py
-  exact.py
-  fuzzy.py
-  lineage.py
-  normalize.py
-  policy.py
-  schemas.py
-  service.py
-
-taxonomy_tools/
-  apply_decisions.py
-  build_info.py
-  cli.py
-  common.py
-  build_ncbi_taxonomy.py
-  inspect_lineage.py
-  resolve_batch.py
-  resolve_name.py
-  resolve_name_cli.py
-
-docs/
-  architecture.md
-  contracts.md
-  deterministic-resolution.md
-  fuzzy-suggestions.md
-  reviewed-mappings.md
-  status-policy.md
-  taxonomy-database.md
-  workflow.md
-```
-
-## Design rules
-
-- The generic resolver package must remain independent of workbook schema.
-- Django should import the package directly rather than duplicate resolver logic.
-- The resolver returns stable JSON-like payloads even when used locally.
-- Deterministic matching must remain ahead of fuzzy suggestions.
-- Human review and decision reuse are first-class workflow requirements.
-
-## Quick start
-
-Build the taxonomy database from a local NCBI taxdump archive:
-
-```bash
-python -m taxonomy_tools.build_ncbi_taxonomy \
-  --dump taxdump.tar.gz \
-  --db data/ncbi_taxonomy.sqlite \
-  --report-json data/ncbi_taxonomy_build_report.json
-```
-
-Or download the official NCBI archive first and build in one step:
-
-```bash
-python -m taxonomy_tools.build_ncbi_taxonomy \
-  --download \
-  --dump data/taxdump/taxdump.tar.gz \
-  --db data/ncbi_taxonomy.sqlite
-```
-
-Resolve one name through the local resolver service:
-
-```bash
-python -m taxonomy_tools.resolve_name_cli "Faecalibacterium prausnitzii" --db data/ncbi_taxonomy.sqlite --level species
-```
-
-Unified CLI examples:
-
-```bash
-python -m taxonomy_tools.cli resolve-name "Faecalibacterium prausnitzii" --db data/ncbi_taxonomy.sqlite --level species
-python -m taxonomy_tools.cli resolve-batch --db data/ncbi_taxonomy.sqlite --input data/resolve_requests.json --output data/resolve_results.json
-python -m taxonomy_tools.cli inspect-lineage --db data/ncbi_taxonomy.sqlite --taxid 1263
-python -m taxonomy_tools.cli build-info --db data/ncbi_taxonomy.sqlite
-```
-
-At this stage deterministic resolution and supervised fuzzy suggestions are
-implemented. Reviewed mapping persistence, Excel import, and Django workflow
-remain for later phases.
-
-The fuzzy layer now prefers `RapidFuzz`. Install project dependencies before
-running the resolver outside this environment:
+Install the package in editable mode:
 
 ```bash
 python -m pip install -e .
 ```
 
-The build CLI now reports progress for both:
+## Quick start
 
-- archive download when `--download` is used
-- long-running build stages such as loading `nodes.dmp`, loading `names.dmp`,
-  and materializing the lineage cache
+Build a taxonomy database from a local taxdump archive:
+
+```bash
+python -m taxonomy_tools.cli build-db \
+  --dump data/taxdump/taxdump.tar.gz \
+  --db data/ncbi_taxonomy.sqlite
+```
+
+Or download the official archive first and build in one step:
+
+```bash
+python -m taxonomy_tools.cli build-db \
+  --download \
+  --dump data/taxdump/taxdump.tar.gz \
+  --db data/ncbi_taxonomy.sqlite
+```
+
+Resolve one name:
+
+```bash
+python -m taxonomy_tools.cli resolve-name \
+  "Faecalibacterium prausnitzii" \
+  --db data/ncbi_taxonomy.sqlite \
+  --level species
+```
+
+Inspect lineage for a known taxid:
+
+```bash
+python -m taxonomy_tools.cli inspect-lineage \
+  --db data/ncbi_taxonomy.sqlite \
+  --taxid 853
+```
+
+Show metadata for the active taxonomy build:
+
+```bash
+python -m taxonomy_tools.cli build-info --db data/ncbi_taxonomy.sqlite
+```
+
+## Python usage
+
+```python
+from taxonomy_resolver.schemas import ResolveRequest
+from taxonomy_resolver.service import TaxonomyResolverService
+
+service = TaxonomyResolverService("data/ncbi_taxonomy.sqlite")
+
+result = service.resolve_name(
+    ResolveRequest(
+        original_name="Faecalibacterim prausnitzii",
+        provided_level="species",
+        allow_fuzzy=True,
+    )
+)
+
+print(result.to_dict())
+```
+
+## Repository layout
+
+```text
+taxonomy_resolver/   Core resolver package
+taxonomy_tools/      Thin CLI command modules
+tests/               Unit and integration-style tests
+docs/                Developer documentation
+```
 
 ## Documentation
 
+Start here:
+
+- [Documentation index](docs/index.md)
+- [Getting started](docs/getting-started.md)
+- [CLI reference](docs/cli.md)
+
+Technical reference:
+
 - [Architecture](docs/architecture.md)
 - [Internal contracts](docs/contracts.md)
-- [Deterministic resolution](docs/deterministic-resolution.md)
-- [Fuzzy suggestions](docs/fuzzy-suggestions.md)
+- [Resolution behavior](docs/deterministic-resolution.md)
+- [Fuzzy matching](docs/fuzzy-suggestions.md)
+- [Status and warning policy](docs/status-policy.md)
+- [Taxonomy database](docs/taxonomy-database.md)
 - [Reviewed mappings](docs/reviewed-mappings.md)
-- [Status policy](docs/status-policy.md)
-- [Taxonomy database builder](docs/taxonomy-database.md)
-- [Roadmap source](docs/workflow.md)
+- [Development guide](docs/development.md)
+
+Planning/history:
+
+- [Roadmap and workflow notes](docs/workflow.md)
+
+## Development
+
+Run the focused test suites that currently cover the resolver and CLI:
+
+```bash
+python -m unittest
+```
+
+For a narrower check while editing CLI code:
+
+```bash
+python -m unittest tests.test_cli tests.test_build_ncbi_taxonomy_cli
+```
+
+## Status
+
+The reusable core is implemented for:
+
+- local taxonomy DB build
+- deterministic resolution
+- transform-assisted fallback
+- fuzzy candidate suggestion
+- lineage lookup
+- reviewed mapping persistence and reuse
+- CLI and Python integration surfaces
+
+There is no plans to directly implement a high level GUI in this Repository, this is meant as a taxonomy_tool
+to be used by other workflows.

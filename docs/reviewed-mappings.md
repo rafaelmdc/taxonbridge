@@ -1,76 +1,65 @@
 # Reviewed Mappings
 
-This document covers the currently implemented reviewed mapping persistence
-layer.
+Reviewed mappings let the resolver reuse prior user decisions for repeated
+observed names. The implementation is intentionally conservative: it reduces
+repeat review work without silently broadening weak or stale decisions.
 
-## Goal
+## Storage model
 
-The reviewed mapping cache reduces repeated review work for the same observed
-name while staying conservative enough to avoid silently reusing weak or stale
-decisions.
-
-## Storage
-
-Reviewed mappings are stored in the SQLite `reviewed_mappings` table.
+Reviewed mappings live in the SQLite `reviewed_mappings` table.
 
 The resolver can use:
 
-- the taxonomy DB itself
-- or a separate cache DB path supplied to `TaxonomyResolverService`
+- the taxonomy database itself
+- or a separate cache database path supplied to `TaxonomyResolverService`
 
-The schema already existed in the reference DB foundation; this phase wires the
-read and write behavior on top of it.
+## How reuse works
 
-## Current reuse rules
+During `resolve_name()`, the service checks for a reusable reviewed mapping
+before deterministic lookup.
 
-The current implementation only reuses mappings when all of the following are
-true:
+A cached decision is reused only if all of the following match:
 
-- the normalized observed name matches exactly
-- the normalized provided level matches exactly, including both null
-- the taxonomy build version matches exactly
-- the prior decision action was `confirm` or `choose_candidate`
-- the stored decision status is `confirmed_by_user`
-- the stored record has a resolved taxid
+- `normalized_name`
+- `provided_level`, including `NULL`
+- `taxonomy_build_version`
+- decision action is `confirm` or `choose_candidate`
+- stored status is `confirmed_by_user`
+- `resolved_taxid` is present
 
-This is intentionally strict. It favors correctness over aggressive reuse.
+## Result shape for reused decisions
 
-## What is reused
-
-When a reviewed mapping is reused, the resolver returns:
+When reuse applies, the resolver returns:
 
 - `match_type = cached`
 - `cache_applied = true`
 - warning `cached_decision_reused`
 
-The cached record currently supplies:
+The resolved taxid, canonical scientific name, and prior score are carried
+forward from the reviewed mapping record.
 
-- matched taxid
-- matched scientific name
-- prior score, if any
-- prior status
+## Writing decisions
 
-## What is not reused yet
+Use `TaxonomyResolverService.record_decision()` or the CLI command:
 
-The current implementation does not reuse:
+```bash
+python -m taxonomy_tools.cli apply-decisions \
+  --db data/ncbi_taxonomy.sqlite \
+  --input data/decisions.json
+```
+
+The input payload must match the `DecisionRecord` contract documented in
+[contracts.md](contracts.md).
+
+## What is intentionally not reused
+
+The resolver does not currently reuse:
 
 - rejected decisions
-- manual-review placeholders
+- unresolved placeholders
 - records from a different taxonomy build version
 - records with a different provided level
-- broader fallback keys such as normalized name alone
+- broad normalized-name-only matches
 
-Those rules can be widened later if the review data shows that stricter reuse
-is leaving too much value on the table.
-
-## Service API
-
-The resolver now supports:
-
-- cache lookup automatically during `resolve_name`
-- explicit persistence through `TaxonomyResolverService.record_decision(...)`
-
-## Practical note
-
-The current phase stores reviewed mappings, but it does not yet implement the
-full downstream review workflow, reviewer queue, or Django-side audit models.
+These rules can be widened later, but only with evidence that the broader reuse
+is safe, which currently, I have not tested.

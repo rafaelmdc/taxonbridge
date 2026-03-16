@@ -1,24 +1,49 @@
-# Status Policy
+# Status and Warning Policy
 
-This document defines the explicit status and warning policy currently used by
-the resolver.
+The resolver uses centralized status and warning enums so the service, CLI,
+tests, and future integration layers all speak the same workflow language.
 
-## Status groups
+## Resolution statuses
 
-### Auto-acceptable statuses
-
-These statuses are currently considered safe to accept without manual review:
+Implemented statuses:
 
 - `resolved_exact_scientific`
 - `resolved_exact_synonym`
 - `resolved_normalized`
+- `suggested_fuzzy_unique`
+- `ambiguous_fuzzy_multiple`
+- `unresolved_vague_label`
+- `unresolved_no_match`
+- `manual_review_required`
+- `confirmed_by_user`
+- `rejected_by_user`
+- `level_conflict`
 
-`confirmed_by_user` is also treated as accepted when the reviewed-mapping layer
-is implemented.
+## Match types
 
-### Review-required statuses
+Implemented match types:
 
-These statuses currently require review or remain unresolved:
+- `exact_scientific`
+- `exact_synonym`
+- `normalized`
+- `fuzzy`
+- `cached`
+- `user_confirmed`
+- `user_selected`
+- `none`
+
+## Auto-acceptable statuses
+
+These statuses are considered safe to auto-accept by current policy:
+
+- `resolved_exact_scientific`
+- `resolved_exact_synonym`
+- `resolved_normalized`
+- `confirmed_by_user`
+
+## Review-required statuses
+
+These statuses require downstream review or handling:
 
 - `suggested_fuzzy_unique`
 - `ambiguous_fuzzy_multiple`
@@ -27,50 +52,44 @@ These statuses currently require review or remain unresolved:
 - `manual_review_required`
 - `level_conflict`
 
-## Level conflict policy
+## Common warnings
 
-`provided_level` is a soft validation signal, not a hard filter.
+Implemented warnings:
 
-If a deterministic match is found and the resolved rank does not match the
-normalized provided level, the resolver:
-
-- changes the result status to `level_conflict`
-- adds warning `provided_level_conflict`
-- keeps the matched taxon and lineage in the result
-- marks the result as review-required
-
-## Fuzzy status policy
-
-Fuzzy candidate counts map to statuses like this:
-
-- 1 candidate: `suggested_fuzzy_unique`
-- 2 or more candidates: `ambiguous_fuzzy_multiple`
-- 0 candidates: `unresolved_no_match`
-
-Fuzzy results are always review-only in the current implementation.
-
-## Warning policy
-
-Warnings annotate the main status rather than replacing it.
-
-Common warnings currently used:
-
-- `synonym_matched`
-- `normalized_matched`
 - `provided_level_conflict`
 - `multiple_exact_candidates`
 - `multiple_fuzzy_candidates`
+- `synonym_matched`
+- `normalized_matched`
+- `transform_applied`
 - `vague_label_detected`
+- `placeholder_label_detected`
+- `cached_decision_reused`
 
-## Why this is centralized
+Warnings annotate the result; they do not replace the main status.
 
-The enums already define the vocabulary, but the resolver also needs one shared
-place for:
+## Important policy rules
 
-- review-required rules
-- auto-accept rules
-- fuzzy outcome classification
-- level-conflict promotion rules
+### Level conflict
 
-That logic now lives in `taxonomy_resolver/policy.py` so the service, exact
-resolver, CLI output, and later Django integration all follow the same rules.
+If a deterministic match is found but the matched rank conflicts with the
+normalized `provided_level`, the result is promoted to `level_conflict`.
+
+### Fuzzy classification
+
+Fuzzy candidate counts map to statuses like this:
+
+- one candidate: `suggested_fuzzy_unique`
+- two or more candidates: `ambiguous_fuzzy_multiple`
+- zero candidates: `unresolved_no_match`
+
+### Cached decisions
+
+Reused reviewed mappings return `match_type = cached` and warning
+`cached_decision_reused`.
+
+## Source of truth
+
+The source of truth for this vocabulary is `taxonomy_resolver/policy.py`. If
+new statuses or warnings are introduced there, this document and the tests
+should be updated in the same change.

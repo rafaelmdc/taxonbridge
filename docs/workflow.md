@@ -1,3 +1,9 @@
+# Workflow Roadmap
+
+This document is the original phased implementation roadmap for the repository.
+It is kept for planning and historical context. For current usage and technical
+reference, start with [index.md](index.md) and [../README.md](../README.md).
+
 Design and implement the full taxonomy-resolution system for my microbiome curation project as a layered local-first architecture:
 
 1. a generic local taxonomy resolver Python package

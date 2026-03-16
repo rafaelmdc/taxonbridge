@@ -1,26 +1,32 @@
 # Internal Contracts
 
-This document defines the stable JSON-like request/response shapes used by the
-resolver service today.
+The resolver is designed as if it were a local API. The Python service, CLI,
+tests, and future integration layers all work with the same stable
+JSON-serializable shapes.
 
-## Statuses in use
+## Main service entry points
 
-The current resolver may return:
+`taxonomy_resolver.service.TaxonomyResolverService` currently exposes:
 
-- `resolved_exact_scientific`
-- `resolved_exact_synonym`
-- `resolved_normalized`
-- `suggested_fuzzy_unique`
-- `ambiguous_fuzzy_multiple`
-- `unresolved_vague_label`
-- `unresolved_no_match`
-- `manual_review_required`
-- `level_conflict`
+- `resolve_name(request: ResolveRequest) -> ResolveResult`
+- `resolve_batch(request: BatchResolveRequest) -> BatchResolveResult`
+- `get_lineage(taxid: int) -> list[dict[str, str | int]]`
+- `record_decision(decision: DecisionRecord) -> None`
+- `get_taxonomy_build_info() -> dict[str, str]`
 
-User-decision statuses such as `confirmed_by_user` and `rejected_by_user` are
-reserved for the later reviewed-mapping layer.
+## Core dataclasses
 
-## Resolve request
+### `ResolveRequest`
+
+Fields:
+
+- `original_name`: observed organism string
+- `provided_level`: optional curator-provided rank
+- `allow_fuzzy`: whether fuzzy fallback is allowed
+- `source`: optional provenance dictionary
+- `context`: optional integration-specific context dictionary
+
+Example:
 
 ```json
 {
@@ -28,15 +34,39 @@ reserved for the later reviewed-mapping layer.
   "provided_level": "species",
   "allow_fuzzy": true,
   "source": {
-    "batch_id": "import-001",
-    "sheet": "Qualitative findings",
+    "sheet": "Findings",
     "row": 42
   },
   "context": {}
 }
 ```
 
-## Resolve result
+### `ResolveResult`
+
+Fields:
+
+- identity and provenance:
+  - `original_name`
+  - `normalized_name`
+  - `provided_level`
+- workflow status:
+  - `status`
+  - `review_required`
+  - `auto_accept`
+  - `match_type`
+  - `warnings`
+- resolved match:
+  - `matched_taxid`
+  - `matched_name`
+  - `matched_rank`
+  - `score`
+- related payloads:
+  - `candidates`
+  - `lineage`
+  - `cache_applied`
+  - `metadata`
+
+Example exact result:
 
 ```json
 {
@@ -55,9 +85,7 @@ reserved for the later reviewed-mapping layer.
   "candidates": [],
   "lineage": [
     {"taxid": 1, "rank": "no rank", "name": "root"},
-    {"taxid": 2, "rank": "superkingdom", "name": "Bacteria"},
-    {"taxid": 1224, "rank": "phylum", "name": "Bacillota"},
-    {"taxid": 239934, "rank": "genus", "name": "Faecalibacterium"},
+    {"taxid": 2, "rank": "domain", "name": "Bacteria"},
     {"taxid": 853, "rank": "species", "name": "Faecalibacterium prausnitzii"}
   ],
   "cache_applied": false,
@@ -67,57 +95,7 @@ reserved for the later reviewed-mapping layer.
 }
 ```
 
-## Synonym result
-
-```json
-{
-  "original_name": "F. prausnitzii",
-  "normalized_name": "f. prausnitzii",
-  "provided_level": "species",
-  "status": "resolved_exact_synonym",
-  "review_required": false,
-  "auto_accept": true,
-  "match_type": "exact_synonym",
-  "warnings": ["synonym_matched"],
-  "matched_taxid": 853,
-  "matched_name": "Faecalibacterium prausnitzii",
-  "matched_rank": "species",
-  "score": 1.0,
-  "candidates": [],
-  "lineage": [],
-  "cache_applied": false,
-  "metadata": {
-    "matched_input_name": "F. prausnitzii"
-  }
-}
-```
-
-## Level-conflict result
-
-```json
-{
-  "original_name": "Faecalibacterium prausnitzii",
-  "normalized_name": "faecalibacterium prausnitzii",
-  "provided_level": "genus",
-  "status": "level_conflict",
-  "review_required": true,
-  "auto_accept": false,
-  "match_type": "exact_scientific",
-  "warnings": ["provided_level_conflict"],
-  "matched_taxid": 853,
-  "matched_name": "Faecalibacterium prausnitzii",
-  "matched_rank": "species",
-  "score": 1.0,
-  "candidates": [],
-  "lineage": [],
-  "cache_applied": false,
-  "metadata": {
-    "matched_input_name": "Faecalibacterium prausnitzii"
-  }
-}
-```
-
-## Fuzzy unique suggestion result
+Example fuzzy result:
 
 ```json
 {
@@ -139,7 +117,7 @@ reserved for the later reviewed-mapping layer.
       "name": "Faecalibacterium prausnitzii",
       "rank": "species",
       "match_type": "fuzzy",
-      "score": 100.0,
+      "score": 99.4,
       "lineage": [],
       "warnings": []
     }
@@ -150,134 +128,102 @@ reserved for the later reviewed-mapping layer.
 }
 ```
 
-## Fuzzy ambiguous result
+### `BatchResolveRequest`
+
+Fields:
+
+- `items`: list of `ResolveRequest`
+- `batch_id`: optional identifier
+
+### `BatchResolveResult`
+
+Fields:
+
+- `results`: list of `ResolveResult`
+- `batch_id`
+- `summary`: per-status counts
+
+Example:
 
 ```json
 {
-  "original_name": "Faecalibacterium prausnitzii gam",
-  "normalized_name": "faecalibacterium prausnitzii gam",
-  "provided_level": "species",
-  "status": "ambiguous_fuzzy_multiple",
-  "review_required": true,
-  "auto_accept": false,
-  "match_type": "fuzzy",
-  "warnings": ["multiple_fuzzy_candidates"],
-  "matched_taxid": null,
-  "matched_name": null,
-  "matched_rank": null,
-  "score": null,
-  "candidates": [
-    {"taxid": 857, "name": "Faecalibacterium prausnitzii beta", "rank": "species", "match_type": "fuzzy", "score": 98.08, "lineage": [], "warnings": []},
-    {"taxid": 856, "name": "Faecalibacterium prausnitzii alpha", "rank": "species", "match_type": "fuzzy", "score": 97.64, "lineage": [], "warnings": []}
-  ],
-  "lineage": [],
-  "cache_applied": false,
-  "metadata": {}
-}
-```
-
-## Transform-assisted deterministic result
-
-```json
-{
-  "original_name": "Ruminococcus sp.",
-  "normalized_name": "ruminococcus sp.",
-  "provided_level": "species",
-  "status": "level_conflict",
-  "review_required": true,
-  "auto_accept": false,
-  "match_type": "exact_scientific",
-  "warnings": [
-    "provided_level_conflict",
-    "transform_applied",
-    "vague_label_detected",
-    "placeholder_label_detected"
-  ],
-  "matched_taxid": 1263,
-  "matched_name": "Ruminococcus",
-  "matched_rank": "genus",
-  "score": 1.0,
-  "candidates": [],
-  "lineage": [],
-  "cache_applied": false,
-  "metadata": {
-    "matched_input_name": "Ruminococcus",
-    "transform_rule": "strip_placeholder_suffix",
-    "transformed_name": "Ruminococcus",
-    "transformed_base_status": "level_conflict"
+  "batch_id": "batch-001",
+  "results": [],
+  "summary": {
+    "resolved_exact_scientific": 1,
+    "resolved_exact_synonym": 0,
+    "resolved_normalized": 0,
+    "suggested_fuzzy_unique": 1,
+    "ambiguous_fuzzy_multiple": 0,
+    "unresolved_vague_label": 0,
+    "unresolved_no_match": 0,
+    "manual_review_required": 0,
+    "confirmed_by_user": 0,
+    "rejected_by_user": 0,
+    "level_conflict": 0
   }
 }
 ```
 
-## Vague-label result
+### `DecisionRecord`
 
-```json
-{
-  "original_name": "Clostridium sp.",
-  "normalized_name": "clostridium sp.",
-  "provided_level": "species",
-  "status": "unresolved_vague_label",
-  "review_required": true,
-  "auto_accept": false,
-  "match_type": "none",
-  "warnings": ["vague_label_detected"],
-  "matched_taxid": null,
-  "matched_name": null,
-  "matched_rank": null,
-  "score": null,
-  "candidates": [],
-  "lineage": [],
-  "cache_applied": false,
-  "metadata": {}
-}
-```
+Fields:
 
-## Unresolved no-match result
+- `action`
+- `original_name`
+- `normalized_name`
+- `provided_level`
+- `taxonomy_build_version`
+- `reviewer`
+- `resolved_taxid`
+- `matched_scientific_name`
+- `match_type`
+- `status`
+- `score`
+- `warnings`
+- `notes`
+- `created_at`
 
-```json
-{
-  "original_name": "Zzzzzzz organism",
-  "normalized_name": "zzzzzzz organism",
-  "provided_level": "species",
-  "status": "unresolved_no_match",
-  "review_required": true,
-  "auto_accept": false,
-  "match_type": "none",
-  "warnings": [],
-  "matched_taxid": null,
-  "matched_name": null,
-  "matched_rank": null,
-  "score": null,
-  "candidates": [],
-  "lineage": [],
-  "cache_applied": false,
-  "metadata": {}
-}
-```
-
-## Decision record
+Example:
 
 ```json
 {
   "action": "confirm",
-  "original_name": "F. prausnitzii",
-  "normalized_name": "f. prausnitzii",
+  "original_name": "Faecalibacterim prausnitzii",
+  "normalized_name": "faecalibacterim prausnitzii",
   "provided_level": "species",
-  "taxonomy_build_version": "2026-03-16",
-  "reviewer": "curator@example.com",
+  "taxonomy_build_version": "ncbi-taxonomy-2026-03-16-123456789abc",
+  "reviewer": "curator@example.org",
   "resolved_taxid": 853,
   "matched_scientific_name": "Faecalibacterium prausnitzii",
   "match_type": "user_selected",
   "status": "confirmed_by_user",
-  "score": 95.8,
+  "score": 98.7,
   "warnings": [],
-  "notes": "Confirmed against paper context.",
-  "created_at": "2026-03-16T21:00:00+00:00"
+  "notes": "Confirmed after review",
+  "created_at": "2026-03-16T12:00:00+00:00"
 }
 ```
 
-## Batch result summary
+## Enums used by the contracts
 
-`BatchResolveResult.summary` is a dictionary keyed by status value. It always
-returns all known statuses so downstream consumers can rely on stable keys even
-when some counts are zero.
+Stable enum families:
+
+- `ResolutionStatus`
+- `MatchType`
+- `WarningCode`
+- `DecisionAction`
+
+See [status-policy.md](status-policy.md) for the current status and warning
+reference.
+
+## Compatibility expectations
+
+These dataclasses are the stable integration boundary for:
+
+- Python callers
+- CLI commands
+- tests
+
+If a field or enum changes, the docs and tests should be updated in the same
+change.

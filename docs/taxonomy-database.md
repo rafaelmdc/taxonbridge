@@ -1,51 +1,52 @@
-# Taxonomy Database Builder
+# Taxonomy Database
 
-This document covers the implemented Phase 2 reference database build.
+Taxonbridge builds a local SQLite reference database from the official NCBI
+taxdump. The database is the foundation for deterministic lookup, lineage
+retrieval, fuzzy candidate generation, and reviewed mapping reuse.
 
-## Goal
+## Inputs
 
-Build a deterministic local SQLite reference store from the official NCBI
-taxdump so the resolver can work fully offline.
-
-The builder currently parses:
+Required taxdump members:
 
 - `nodes.dmp`
 - `names.dmp`
 
-It detects `rankedlineage.dmp` when present and records that fact in metadata,
-but the lineage cache is built from parent traversal so the builder does not
-depend on that optional file.
+Optional:
+
+- `rankedlineage.dmp`
+
+The current builder records whether `rankedlineage.dmp` was present, but does
+not require it.
 
 ## Why SQLite
 
-SQLite fits this stage well because it is:
+SQLite is a good fit for this project because it is:
 
-- local-first and dependency-light
-- easy to version and ship as a file artifact
-- sufficient for exact lookups, parent traversal, and lineage cache queries
-- straightforward to inspect with standard SQL tools
+- local and dependency-light
+- easy to inspect and ship as a single file
+- sufficient for exact lookup, lineage traversal, and metadata storage
+- straightforward to version and rebuild reproducibly
 
-## Schema
+## Schema overview
 
 ### `taxa`
 
-Stores the taxonomy tree from `nodes.dmp`.
+Stores the NCBI taxonomy tree from `nodes.dmp`.
 
-Important fields:
+Key fields:
 
 - `taxid`
 - `parent_taxid`
 - `rank`
 - `is_root`
 
-The remaining node metadata columns mirror the NCBI dump and preserve source
-information for later debugging or filtering.
+Additional source columns mirror the NCBI dump for completeness.
 
 ### `taxon_names`
 
-Stores all scientific names and synonyms from `names.dmp`.
+Stores scientific names and non-scientific names from `names.dmp`.
 
-Important fields:
+Key fields:
 
 - `taxid`
 - `name_txt`
@@ -53,37 +54,24 @@ Important fields:
 - `name_class`
 - `normalized_name`
 
-`normalized_name` is stored at build time so later exact-normalized matching
-does not need to recompute it inside SQL predicates.
+`normalized_name` is stored at build time for efficient normalized lookup.
 
 ### `lineage_cache`
 
 Stores one materialized lineage row per taxid.
 
-Important fields:
+Key fields:
 
 - `taxid`
 - `lineage_json`
-- rank columns:
-  - `superkingdom`
-  - `phylum`
-  - `class_name`
-  - `order_name`
-  - `family`
-  - `genus`
-  - `species`
-
-`lineage_json` stores the full root-to-node lineage as a JSON array of
-`taxid/rank/name` objects. The rank columns are denormalized for fast filtering
-and later downstream export.
+- denormalized rank columns such as `phylum`, `family`, `genus`, and `species`
 
 ### `metadata`
 
-Stores reproducibility and validation metadata for the build.
-
-Important keys include:
+Stores reproducibility and validation metadata, including:
 
 - `taxonomy_build_version`
+- `source_dump_path`
 - `source_dump_sha256`
 - `built_at_utc`
 - `taxa_count`
@@ -91,93 +79,89 @@ Important keys include:
 - `scientific_name_count`
 - `synonym_count`
 - `lineage_cache_count`
-- `validation_checks_json`
+
+### `reviewed_mappings`
+
+Stores persisted user review decisions for conservative cache reuse.
 
 ## Indexes
 
-The builder creates indexes for:
+Current indexes:
 
 - `taxa(parent_taxid)`
 - `taxon_names(taxid)`
 - `taxon_names(name_txt)`
 - `taxon_names(normalized_name)`
 - `taxon_names(name_class)`
-
-These cover the immediate Phase 2 goals: exact name lookup, synonym lookup,
-normalized lookup, parent-child traversal, and bounded candidate-pool retrieval
-for the current fuzzy layer.
+- `reviewed_mappings(normalized_name, provided_level)`
 
 ## Build flow
 
-1. Validate the taxdump archive contains `nodes.dmp` and `names.dmp`.
-2. Initialize the SQLite schema.
-3. Clear previous reference-build tables.
-4. Bulk load `nodes.dmp` into `taxa`.
-5. Bulk load `names.dmp` into `taxon_names`, computing `normalized_name`.
-6. Walk the taxonomy tree from roots and materialize `lineage_cache`.
-7. Store metadata and validation counts.
+1. validate that the archive contains the required dump files
+2. initialize the SQLite schema
+3. clear previous reference-build tables
+4. bulk load `nodes.dmp`
+5. bulk load `names.dmp` and compute `normalized_name`
+6. materialize lineage rows into `lineage_cache`
+7. write metadata and validation results
 
-The CLI can either:
+## Build commands
 
-- build from an existing local archive
-- or download the official archive to the `--dump` path first and then build
-
-The CLI also emits progress updates during long-running steps so local terminal
-use is easier to monitor:
-
-- download progress for `--download`
-- row-count progress while loading `nodes.dmp`
-- row-count progress while loading `names.dmp`
-- row-count progress while materializing `lineage_cache`
-
-## Validation checks
-
-The current build validates:
-
-- taxa rows loaded and non-zero
-- name rows loaded and non-zero
-- scientific name rows loaded and non-zero
-- lineage cache row count matches taxa row count
-- at least one root taxon exists
-
-## Example build command
+Build from a local archive:
 
 ```bash
-python -m taxonomy_tools.build_ncbi_taxonomy \
-  --dump taxdump.tar.gz \
-  --db data/ncbi_taxonomy.sqlite \
-  --report-json data/ncbi_taxonomy_build_report.json
+python -m taxonomy_tools.cli build-db \
+  --dump data/taxdump/taxdump.tar.gz \
+  --db data/ncbi_taxonomy.sqlite
 ```
 
-## Example download-and-build command
+Download and build:
 
 ```bash
-python -m taxonomy_tools.build_ncbi_taxonomy \
+python -m taxonomy_tools.cli build-db \
   --download \
   --dump data/taxdump/taxdump.tar.gz \
   --db data/ncbi_taxonomy.sqlite
 ```
 
-The `--download` flag keeps the build local-first: the archive is fetched once
-to a normal file path, and the database is still built from that local archive.
+## Build output
 
-## How the resolver uses the DB today
+The builder emits:
 
-The current resolver uses this database for:
+- progress during long-running stages
+- a final summary with row counts
+- optional JSON build report when `--report-json` is supplied
 
-- exact scientific-name lookup
+## Validation checks
+
+The current build verifies:
+
+- taxa rows loaded and non-zero
+- name rows loaded and non-zero
+- scientific-name rows loaded and non-zero
+- lineage cache row count matches taxa row count
+- at least one root taxon exists
+
+## How the resolver uses the database
+
+Current uses:
+
+- exact scientific lookup
 - exact synonym lookup
 - normalized exact lookup
-- cached lineage retrieval
-- bounded fuzzy candidate-pool lookup against `normalized_name`
+- lineage retrieval
+- bounded fuzzy candidate retrieval
+- reviewed mapping persistence and reuse
 
-The repository does not currently build a separate full-text or edit-distance
-search index. The existing `normalized_name` index is the current compromise
-until there is evidence that fuzzy candidate-pool narrowing is the bottleneck.
+## Search index note
 
-## Example inspection queries
+The repository does not currently build a separate fuzzy search index. The
+current design relies on the `normalized_name` index and a bounded candidate
+pool before RapidFuzz scoring.
 
-Scientific name for one taxid:
+## Example SQL
+
+Find the scientific name for one taxid:
 
 ```sql
 SELECT name_txt
@@ -185,7 +169,7 @@ FROM taxon_names
 WHERE taxid = 853 AND name_class = 'scientific name';
 ```
 
-All names matching a normalized lookup:
+Find rows by normalized name:
 
 ```sql
 SELECT taxid, name_txt, name_class
@@ -193,7 +177,7 @@ FROM taxon_names
 WHERE normalized_name = 'faecalibacterium prausnitzii';
 ```
 
-Cached lineage for one taxid:
+Inspect cached lineage:
 
 ```sql
 SELECT lineage_json, phylum, family, genus, species
