@@ -603,8 +603,8 @@ For canonical organisms, define fields such as:
 - ncbi_taxid
 - scientific_name
 - matched_rank
-- lineage fields:
-  superkingdom, phylum, class, order, family, genus, species
+- lineage fields if denormalized downstream, or a structured lineage payload
+  derived from the resolver output
 - taxonomy_build
 - created_at / updated_at
 

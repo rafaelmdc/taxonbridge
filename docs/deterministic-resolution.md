@@ -59,6 +59,19 @@ the resolver returns:
 
 The result still returns the canonical scientific name for the matched taxid.
 
+Coverage caveat:
+
+- exact synonym resolution only works for names that are actually present in the
+  built taxonomy database
+- some abbreviations or curator-familiar variants are not guaranteed to exist in
+  the raw NCBI taxdump as synonyms
+- a name such as `F. prausnitzii` may resolve in a synthetic test fixture but
+  still be `unresolved_no_match` in a real full build if that synonym is not
+  present in the source taxonomy data
+
+This is a source-data coverage issue, not necessarily a resolver performance
+issue.
+
 ### Normalized exact
 
 If raw exact lookup fails and the normalized input matches one taxon uniquely,

@@ -20,24 +20,48 @@ def lineage_entries_from_json(lineage_json: str | None) -> list[LineageEntry]:
 
     if not lineage_json:
         return []
-    return [
-        LineageEntry(
-            taxid=int(entry["taxid"]),
-            rank=str(entry["rank"]),
-            name=str(entry["name"]),
+    entries: list[LineageEntry] = []
+    for entry in json.loads(lineage_json):
+        if isinstance(entry, dict):
+            entries.append(
+                LineageEntry(
+                    taxid=int(entry["taxid"]),
+                    rank=str(entry["rank"]),
+                    name=str(entry["name"]),
+                )
+            )
+            continue
+        taxid, rank, name = entry
+        entries.append(
+            LineageEntry(
+                taxid=int(taxid),
+                rank=str(rank),
+                name=str(name),
+            )
         )
-        for entry in json.loads(lineage_json)
-    ]
+    return entries
 
 
 def get_lineage_for_taxid(db_path: DatabaseHandle, taxid: int) -> list[LineageEntry]:
     """Return cached lineage entries for a taxid."""
 
-    return [
-        LineageEntry(
-            taxid=int(entry["taxid"]),
-            rank=str(entry["rank"]),
-            name=str(entry["name"]),
+    entries: list[LineageEntry] = []
+    for entry in fetch_lineage_entries(db_path, taxid):
+        if isinstance(entry, dict):
+            entries.append(
+                LineageEntry(
+                    taxid=int(entry["taxid"]),
+                    rank=str(entry["rank"]),
+                    name=str(entry["name"]),
+                )
+            )
+            continue
+        entry_taxid, rank, name = entry
+        entries.append(
+            LineageEntry(
+                taxid=int(entry_taxid),
+                rank=str(rank),
+                name=str(name),
+            )
         )
-        for entry in fetch_lineage_entries(db_path, taxid)
-    ]
+    return entries

@@ -9,6 +9,7 @@ from collections import defaultdict
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+import sqlite3
 from tarfile import TarFile, TarInfo, is_tarfile
 from typing import BinaryIO, Iterator
 
@@ -24,16 +25,17 @@ from .db import (
 from .normalize import normalize_name
 
 REQUIRED_TAXDUMP_MEMBERS = {"names.dmp", "nodes.dmp"}
-RANK_COLUMN_MAP = {
-    "superkingdom": "superkingdom",
-    "phylum": "phylum",
-    "class": "class_name",
-    "order": "order_name",
-    "family": "family",
-    "genus": "genus",
-    "species": "species",
-}
 ProgressCallback = Callable[[str, str, int | None, int | None, bool], None]
+BUILD_PRAGMA_STATEMENTS = (
+    "PRAGMA journal_mode = OFF",
+    "PRAGMA synchronous = OFF",
+    "PRAGMA temp_store = MEMORY",
+)
+RUNTIME_PRAGMA_STATEMENTS = (
+    "PRAGMA journal_mode = DELETE",
+    "PRAGMA synchronous = NORMAL",
+    "PRAGMA temp_store = DEFAULT",
+)
 
 
 @dataclass(slots=True)
@@ -132,6 +134,7 @@ def _notify_progress(
 def _insert_nodes(
     archive: TarFile,
     *,
+    db_handle: sqlite3.Connection,
     batch_size: int = 50_000,
     progress_callback: ProgressCallback | None = None,
     progress_every: int = 250_000,
@@ -176,7 +179,7 @@ def _insert_nodes(
             row_count += 1
 
             if len(batch) >= batch_size:
-                insert_taxa_rows(batch)
+                insert_taxa_rows(batch, db_handle, commit=False)
                 batch.clear()
 
             if row_count % progress_every == 0:
@@ -188,7 +191,7 @@ def _insert_nodes(
                 )
 
     if batch:
-        insert_taxa_rows(batch)
+        insert_taxa_rows(batch, db_handle, commit=False)
 
     _notify_progress(
         progress_callback,
@@ -204,6 +207,7 @@ def _insert_nodes(
 def _insert_names(
     archive: TarFile,
     *,
+    db_handle: sqlite3.Connection,
     batch_size: int = 50_000,
     progress_callback: ProgressCallback | None = None,
     progress_every: int = 250_000,
@@ -238,7 +242,7 @@ def _insert_names(
                 synonym_names += 1
 
             if len(batch) >= batch_size:
-                insert_taxon_name_rows(batch)
+                insert_taxon_name_rows(batch, db_handle, commit=False)
                 batch.clear()
 
             if total_names % progress_every == 0:
@@ -250,7 +254,7 @@ def _insert_names(
                 )
 
     if batch:
-        insert_taxon_name_rows(batch)
+        insert_taxon_name_rows(batch, db_handle, commit=False)
 
     _notify_progress(
         progress_callback,
@@ -267,24 +271,15 @@ def _lineage_row(
     taxid: int,
     lineage: list[dict[str, object]],
 ) -> tuple[object, ...]:
-    """Convert one lineage list into the materialized cache row shape."""
+    """Convert one lineage list into the compact cache row shape."""
 
-    rank_values = {column: None for column in RANK_COLUMN_MAP.values()}
-    for entry in lineage:
-        rank = entry["rank"]
-        if rank in RANK_COLUMN_MAP:
-            rank_values[RANK_COLUMN_MAP[rank]] = entry["name"]
-
+    compact_lineage = [
+        [int(entry["taxid"]), str(entry["rank"]), str(entry["name"])]
+        for entry in lineage
+    ]
     return (
         taxid,
-        json.dumps(lineage, ensure_ascii=True, separators=(",", ":")),
-        rank_values["superkingdom"],
-        rank_values["phylum"],
-        rank_values["class_name"],
-        rank_values["order_name"],
-        rank_values["family"],
-        rank_values["genus"],
-        rank_values["species"],
+        json.dumps(compact_lineage, ensure_ascii=True, separators=(",", ":")),
     )
 
 
@@ -355,6 +350,7 @@ def _insert_lineage_cache(
     rank_by_taxid: dict[int, str],
     scientific_name_by_taxid: dict[int, str],
     *,
+    db_handle: sqlite3.Connection,
     batch_size: int = 25_000,
     progress_callback: ProgressCallback | None = None,
     progress_every: int = 250_000,
@@ -368,7 +364,7 @@ def _insert_lineage_cache(
         batch.append(row)
         row_count += 1
         if len(batch) >= batch_size:
-            insert_lineage_rows(batch)
+            insert_lineage_rows(batch, db_handle, commit=False)
             batch.clear()
         if row_count % progress_every == 0:
             _notify_progress(
@@ -379,7 +375,7 @@ def _insert_lineage_cache(
             )
 
     if batch:
-        insert_lineage_rows(batch)
+        insert_lineage_rows(batch, db_handle, commit=False)
 
     _notify_progress(
         progress_callback,
@@ -392,47 +388,55 @@ def _insert_lineage_cache(
     return row_count
 
 
-def _count_rows(table_name: str) -> int:
+def _apply_sqlite_pragmas(
+    connection: sqlite3.Connection,
+    statements: tuple[str, ...],
+) -> None:
+    """Apply one sequence of SQLite PRAGMA statements."""
+
+    for statement in statements:
+        connection.execute(statement)
+
+
+def _count_rows(table_name: str, db_handle: sqlite3.Connection) -> int:
     """Return row counts used by build validation and tests."""
 
-    with connect() as connection:
-        row = connection.execute(f"SELECT COUNT(*) AS row_count FROM {table_name}").fetchone()
+    row = db_handle.execute(f"SELECT COUNT(*) AS row_count FROM {table_name}").fetchone()
     return int(row["row_count"])
 
 
-def _get_root_taxid_count() -> int:
+def _get_root_taxid_count(db_handle: sqlite3.Connection) -> int:
     """Return the number of root rows present in the loaded taxonomy."""
 
-    with connect() as connection:
-        row = connection.execute(
-            "SELECT COUNT(*) AS row_count FROM taxa WHERE is_root = 1"
-        ).fetchone()
+    row = db_handle.execute(
+        "SELECT COUNT(*) AS row_count FROM taxa WHERE is_root = 1"
+    ).fetchone()
     return int(row["row_count"])
 
 
 def _validate_build(
     *,
+    db_handle: sqlite3.Connection,
     expected_taxa_count: int,
     expected_name_count: int,
     expected_scientific_name_count: int,
 ) -> dict[str, bool]:
     """Run lightweight deterministic checks on the built reference DB."""
 
-    taxa_count = _count_rows("taxa")
-    name_count = _count_rows("taxon_names")
-    lineage_cache_count = _count_rows("lineage_cache")
-    root_taxid_count = _get_root_taxid_count()
+    taxa_count = _count_rows("taxa", db_handle)
+    name_count = _count_rows("taxon_names", db_handle)
+    lineage_cache_count = _count_rows("lineage_cache", db_handle)
+    root_taxid_count = _get_root_taxid_count(db_handle)
 
-    with connect() as connection:
-        scientific_name_count = int(
-            connection.execute(
-                """
-                SELECT COUNT(*) AS row_count
-                FROM taxon_names
-                WHERE name_class = 'scientific name'
-                """
-            ).fetchone()["row_count"]
-        )
+    scientific_name_count = int(
+        db_handle.execute(
+            """
+            SELECT COUNT(*) AS row_count
+            FROM taxon_names
+            WHERE name_class = 'scientific name'
+            """
+        ).fetchone()["row_count"]
+    )
 
     return {
         "taxa_loaded": taxa_count == expected_taxa_count and taxa_count > 0,
@@ -444,6 +448,30 @@ def _validate_build(
         "lineage_cache_complete": lineage_cache_count == expected_taxa_count,
         "root_present": root_taxid_count >= 1,
     }
+
+
+def _optimize_database(
+    db_handle: sqlite3.Connection,
+    *,
+    progress_callback: ProgressCallback | None = None,
+) -> None:
+    """Refresh SQLite planner statistics after the build completes."""
+
+    _notify_progress(
+        progress_callback,
+        stage="optimize",
+        message="Analyzing SQLite statistics",
+        final=True,
+    )
+    db_handle.execute("ANALYZE")
+    _notify_progress(
+        progress_callback,
+        stage="optimize",
+        message="Running SQLite optimizer",
+        final=True,
+    )
+    db_handle.execute("PRAGMA optimize")
+    db_handle.commit()
 
 
 def build_taxonomy_database(
@@ -475,96 +503,126 @@ def build_taxonomy_database(
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
     initialize_database(db_path, create_indexes=False)
-    clear_reference_tables(db_path)
-
-    with TarFile.open(dump_path) as archive:
+    with connect(db_path) as build_connection:
         _notify_progress(
             progress_callback,
-            stage="nodes",
-            message="Starting nodes.dmp load",
-            current=0,
+            stage="prepare",
+            message="Applying SQLite build pragmas",
+            final=True,
         )
-        parent_by_taxid, rank_by_taxid, taxa_count = _insert_nodes(
-            archive,
+        _apply_sqlite_pragmas(build_connection, BUILD_PRAGMA_STATEMENTS)
+        clear_reference_tables(build_connection, commit=False)
+        build_connection.commit()
+
+        with TarFile.open(dump_path) as archive:
+            _notify_progress(
+                progress_callback,
+                stage="nodes",
+                message="Starting nodes.dmp load",
+                current=0,
+            )
+            parent_by_taxid, rank_by_taxid, taxa_count = _insert_nodes(
+                archive,
+                db_handle=build_connection,
+                progress_callback=progress_callback,
+            )
+            build_connection.commit()
+            _notify_progress(
+                progress_callback,
+                stage="names",
+                message="Starting names.dmp load",
+                current=0,
+            )
+            scientific_name_by_taxid, name_count, scientific_name_count, synonym_count = _insert_names(
+                archive,
+                db_handle=build_connection,
+                progress_callback=progress_callback,
+            )
+            build_connection.commit()
+
+        _notify_progress(
+            progress_callback,
+            stage="lineage",
+            message="Starting lineage cache materialization",
+            current=0,
+            total=taxa_count,
+        )
+        lineage_cache_count = _insert_lineage_cache(
+            parent_by_taxid=parent_by_taxid,
+            rank_by_taxid=rank_by_taxid,
+            scientific_name_by_taxid=scientific_name_by_taxid,
+            db_handle=build_connection,
+            progress_callback=progress_callback,
+        )
+        build_connection.commit()
+        _notify_progress(
+            progress_callback,
+            stage="indexes",
+            message="Creating SQLite indexes",
+            final=True,
+        )
+        initialize_database(build_connection, create_indexes=True)
+        _optimize_database(
+            build_connection,
             progress_callback=progress_callback,
         )
         _notify_progress(
             progress_callback,
-            stage="names",
-            message="Starting names.dmp load",
-            current=0,
+            stage="validate",
+            message="Running validation checks",
+            final=True,
         )
-        scientific_name_by_taxid, name_count, scientific_name_count, synonym_count = _insert_names(
-            archive,
-            progress_callback=progress_callback,
+        validation_checks = _validate_build(
+            db_handle=build_connection,
+            expected_taxa_count=taxa_count,
+            expected_name_count=name_count,
+            expected_scientific_name_count=scientific_name_count,
         )
+        root_taxid_count = _get_root_taxid_count(build_connection)
 
-    _notify_progress(
-        progress_callback,
-        stage="lineage",
-        message="Starting lineage cache materialization",
-        current=0,
-        total=taxa_count,
-    )
-    lineage_cache_count = _insert_lineage_cache(
-        parent_by_taxid=parent_by_taxid,
-        rank_by_taxid=rank_by_taxid,
-        scientific_name_by_taxid=scientific_name_by_taxid,
-        progress_callback=progress_callback,
-    )
-    _notify_progress(
-        progress_callback,
-        stage="indexes",
-        message="Creating SQLite indexes",
-        final=True,
-    )
-    initialize_database(db_path, create_indexes=True)
-    _notify_progress(
-        progress_callback,
-        stage="validate",
-        message="Running validation checks",
-        final=True,
-    )
-    validation_checks = _validate_build(
-        expected_taxa_count=taxa_count,
-        expected_name_count=name_count,
-        expected_scientific_name_count=scientific_name_count,
-    )
-    root_taxid_count = _get_root_taxid_count()
-
-    _notify_progress(
-        progress_callback,
-        stage="metadata",
-        message="Writing build metadata",
-        final=True,
-    )
-    upsert_metadata(
-        db_path,
-        {
-            "schema_version": "1",
-            "build_stage": "phase_2_complete",
-            "taxonomy_build_version": taxonomy_build_version,
-            "source_dump_path": str(dump_path),
-            "source_dump_sha256": source_dump_sha256,
-            "built_at_utc": built_at_utc,
-            "taxa_count": str(taxa_count),
-            "name_count": str(name_count),
-            "scientific_name_count": str(scientific_name_count),
-            "synonym_count": str(synonym_count),
-            "lineage_cache_count": str(lineage_cache_count),
-            "root_taxid_count": str(root_taxid_count),
-            "rankedlineage_present": str("rankedlineage.dmp" in available_members).lower(),
-            "validation_checks_json": json.dumps(
-                validation_checks, ensure_ascii=True, separators=(",", ":")
-            ),
-        },
-    )
-    _notify_progress(
-        progress_callback,
-        stage="done",
-        message="Build complete",
-        final=True,
-    )
+        _notify_progress(
+            progress_callback,
+            stage="metadata",
+            message="Writing build metadata",
+            final=True,
+        )
+        upsert_metadata(
+            build_connection,
+            {
+                "schema_version": "1",
+                "build_stage": "phase_2_complete",
+                "taxonomy_build_version": taxonomy_build_version,
+                "source_dump_path": str(dump_path),
+                "source_dump_sha256": source_dump_sha256,
+                "built_at_utc": built_at_utc,
+                "taxa_count": str(taxa_count),
+                "name_count": str(name_count),
+                "scientific_name_count": str(scientific_name_count),
+                "synonym_count": str(synonym_count),
+                "lineage_cache_count": str(lineage_cache_count),
+                "root_taxid_count": str(root_taxid_count),
+                "rankedlineage_present": str("rankedlineage.dmp" in available_members).lower(),
+                "sqlite_build_pragmas_json": json.dumps(BUILD_PRAGMA_STATEMENTS),
+                "sqlite_post_build_optimized": "true",
+                "validation_checks_json": json.dumps(
+                    validation_checks, ensure_ascii=True, separators=(",", ":")
+                ),
+            },
+        )
+        _notify_progress(
+            progress_callback,
+            stage="prepare",
+            message="Restoring SQLite runtime pragmas",
+            final=True,
+        )
+        _apply_sqlite_pragmas(build_connection, RUNTIME_PRAGMA_STATEMENTS)
+        build_connection.commit()
+        _notify_progress(
+            progress_callback,
+            stage="done",
+            message="Build complete",
+            final=True,
+        )
 
     return TaxonomyBuildSummary(
         db_path=str(db_path),

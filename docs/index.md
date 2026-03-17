@@ -26,6 +26,8 @@ into a larger application.
 - [Status and warning policy](status-policy.md): stable workflow vocabulary.
 - [Taxonomy database](taxonomy-database.md): SQLite schema, build metadata, and
   example SQL queries.
+- [Optimization workflow](optimization_workflow.md): speed bottlenecks, storage
+  tradeoffs, and practical optimization strategy.
 - [Reviewed mappings](reviewed-mappings.md): persisted user decisions and cache
   reuse rules.
 

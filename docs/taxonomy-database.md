@@ -64,7 +64,9 @@ Key fields:
 
 - `taxid`
 - `lineage_json`
-- denormalized rank columns such as `phylum`, `family`, `genus`, and `species`
+
+`lineage_json` is stored in a compact array-based form to keep read speed high
+without duplicating rank-name columns across millions of rows.
 
 ### `metadata`
 
@@ -79,6 +81,8 @@ Stores reproducibility and validation metadata, including:
 - `scientific_name_count`
 - `synonym_count`
 - `lineage_cache_count`
+- `sqlite_build_pragmas_json`
+- `sqlite_post_build_optimized`
 
 ### `reviewed_mappings`
 
@@ -93,6 +97,8 @@ Current indexes:
 - `taxon_names(name_txt)`
 - `taxon_names(normalized_name)`
 - `taxon_names(name_class)`
+- `taxon_names(name_txt, name_class, taxid)`
+- `taxon_names(taxid, name_class, name_txt)`
 - `reviewed_mappings(normalized_name, provided_level)`
 
 ## Build flow
@@ -103,7 +109,9 @@ Current indexes:
 4. bulk load `nodes.dmp`
 5. bulk load `names.dmp` and compute `normalized_name`
 6. materialize lineage rows into `lineage_cache`
-7. write metadata and validation results
+7. create indexes after the bulk load completes
+8. run SQLite planner optimization
+9. write metadata and validation results
 
 ## Build commands
 
@@ -131,6 +139,7 @@ The builder emits:
 - progress during long-running stages
 - a final summary with row counts
 - optional JSON build report when `--report-json` is supplied
+- temporary build-only SQLite tuning during the bulk load
 
 ## Validation checks
 
@@ -159,6 +168,18 @@ The repository does not currently build a separate fuzzy search index. The
 current design relies on the `normalized_name` index and a bounded candidate
 pool before RapidFuzz scoring.
 
+## Size and performance note
+
+The SQLite file is expected to be much larger than the compressed NCBI
+`taxdump.tar.gz`. The builder stores parsed tables, normalized names,
+lineage cache rows, and multiple lookup indexes. That said, very large growth
+is not treated as inherently required for speed. The current build keeps the
+lookup-critical indexes, but stores lineage in a more compact form and avoids
+unused denormalized lineage columns.
+
+See [Optimization workflow](optimization_workflow.md) for the current storage
+and speed strategy, tradeoffs, and future options.
+
 ## Example SQL
 
 Find the scientific name for one taxid:
@@ -180,7 +201,7 @@ WHERE normalized_name = 'faecalibacterium prausnitzii';
 Inspect cached lineage:
 
 ```sql
-SELECT lineage_json, phylum, family, genus, species
+SELECT lineage_json
 FROM lineage_cache
 WHERE taxid = 853;
 ```

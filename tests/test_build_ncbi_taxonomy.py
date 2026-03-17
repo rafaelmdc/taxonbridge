@@ -62,7 +62,7 @@ class BuildNcbiTaxonomyTests(unittest.TestCase):
                 names_count = connection.execute("SELECT COUNT(*) FROM taxon_names").fetchone()[0]
                 lineage_row = connection.execute(
                     """
-                    SELECT superkingdom, phylum, class_name, order_name, family, genus, species, lineage_json
+                    SELECT lineage_json
                     FROM lineage_cache
                     WHERE taxid = 853
                     """
@@ -70,19 +70,23 @@ class BuildNcbiTaxonomyTests(unittest.TestCase):
                 metadata_value = connection.execute(
                     "SELECT value FROM metadata WHERE key = 'taxonomy_build_version'"
                 ).fetchone()[0]
+                sqlite_optimized = connection.execute(
+                    "SELECT value FROM metadata WHERE key = 'sqlite_post_build_optimized'"
+                ).fetchone()[0]
 
             self.assertEqual(taxa_count, 8)
             self.assertEqual(names_count, 9)
-            self.assertEqual(lineage_row[0], "Bacteria")
-            self.assertEqual(lineage_row[1], "Bacillota")
-            self.assertEqual(lineage_row[2], "Clostridia")
-            self.assertEqual(lineage_row[3], "Clostridiales")
-            self.assertEqual(lineage_row[4], "Oscillospiraceae")
-            self.assertEqual(lineage_row[5], "Faecalibacterium")
-            self.assertEqual(lineage_row[6], "Faecalibacterium prausnitzii")
-            lineage_json = json.loads(lineage_row[7])
-            self.assertEqual(lineage_json[-1]["taxid"], 853)
+            lineage_json = json.loads(lineage_row[0])
+            self.assertEqual(lineage_json[1][2], "Bacteria")
+            self.assertEqual(lineage_json[2][2], "Bacillota")
+            self.assertEqual(lineage_json[3][2], "Clostridia")
+            self.assertEqual(lineage_json[4][2], "Clostridiales")
+            self.assertEqual(lineage_json[5][2], "Oscillospiraceae")
+            self.assertEqual(lineage_json[6][2], "Faecalibacterium")
+            self.assertEqual(lineage_json[7][2], "Faecalibacterium prausnitzii")
+            self.assertEqual(lineage_json[-1][0], 853)
             self.assertEqual(metadata_value, summary.taxonomy_build_version)
+            self.assertEqual(sqlite_optimized, "true")
 
     def test_build_emits_progress_events(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -103,6 +107,7 @@ class BuildNcbiTaxonomyTests(unittest.TestCase):
             self.assertTrue(any(stage == "nodes" for stage, *_ in events))
             self.assertTrue(any(stage == "names" for stage, *_ in events))
             self.assertTrue(any(stage == "lineage" for stage, *_ in events))
+            self.assertTrue(any(stage == "optimize" for stage, *_ in events))
             self.assertTrue(any(event[0] == "done" and event[4] for event in events))
 
     def _write_taxdump_archive(self, archive_path: Path) -> None:

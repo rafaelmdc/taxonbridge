@@ -47,13 +47,6 @@ SCHEMA_STATEMENTS = [
     CREATE TABLE IF NOT EXISTS lineage_cache (
         taxid INTEGER PRIMARY KEY,
         lineage_json TEXT NOT NULL,
-        superkingdom TEXT,
-        phylum TEXT,
-        class_name TEXT,
-        order_name TEXT,
-        family TEXT,
-        genus TEXT,
-        species TEXT,
         FOREIGN KEY (taxid) REFERENCES taxa(taxid)
     )
     """,
@@ -117,7 +110,7 @@ def get_default_db_path() -> Path:
     return DEFAULT_DB_PATH
 
 
-def initialize_database(db_path: Path | str, *, create_indexes: bool = True) -> None:
+def initialize_database(db_path: DatabaseHandle, *, create_indexes: bool = True) -> None:
     """Create the reference and cache schema in a new or existing database."""
 
     with connect(db_path) as connection:
@@ -129,7 +122,7 @@ def initialize_database(db_path: Path | str, *, create_indexes: bool = True) -> 
         connection.commit()
 
 
-def clear_reference_tables(db_path: Path | str) -> None:
+def clear_reference_tables(db_path: DatabaseHandle, *, commit: bool = True) -> None:
     """Remove reference-build data while preserving reviewed mapping history."""
 
     with connect(db_path) as connection:
@@ -137,12 +130,15 @@ def clear_reference_tables(db_path: Path | str) -> None:
         connection.execute("DELETE FROM taxon_names")
         connection.execute("DELETE FROM taxa")
         connection.execute("DELETE FROM metadata")
-        connection.commit()
+        if commit:
+            connection.commit()
 
 
 def insert_taxa_rows(
     rows: list[tuple[object, ...]],
     db_path: DatabaseHandle = None,
+    *,
+    commit: bool = True,
 ) -> None:
     """Bulk insert parsed taxa rows from `nodes.dmp`."""
 
@@ -168,12 +164,15 @@ def insert_taxa_rows(
             """,
             rows,
         )
-        connection.commit()
+        if commit:
+            connection.commit()
 
 
 def insert_taxon_name_rows(
     rows: list[tuple[object, ...]],
     db_path: DatabaseHandle = None,
+    *,
+    commit: bool = True,
 ) -> None:
     """Bulk insert parsed taxon name rows from `names.dmp`."""
 
@@ -190,12 +189,15 @@ def insert_taxon_name_rows(
             """,
             rows,
         )
-        connection.commit()
+        if commit:
+            connection.commit()
 
 
 def insert_lineage_rows(
     rows: list[tuple[object, ...]],
     db_path: DatabaseHandle = None,
+    *,
+    commit: bool = True,
 ) -> None:
     """Bulk insert materialized lineage cache rows."""
 
@@ -204,22 +206,21 @@ def insert_lineage_rows(
             """
             INSERT INTO lineage_cache(
                 taxid,
-                lineage_json,
-                superkingdom,
-                phylum,
-                class_name,
-                order_name,
-                family,
-                genus,
-                species
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                lineage_json
+            ) VALUES (?, ?)
             """,
             rows,
         )
-        connection.commit()
+        if commit:
+            connection.commit()
 
 
-def upsert_metadata(db_path: Path | str, items: dict[str, str]) -> None:
+def upsert_metadata(
+    db_path: DatabaseHandle,
+    items: dict[str, str],
+    *,
+    commit: bool = True,
+) -> None:
     """Persist build metadata used for reproducibility and cache reuse."""
 
     with connect(db_path) as connection:
@@ -231,7 +232,8 @@ def upsert_metadata(db_path: Path | str, items: dict[str, str]) -> None:
             """,
             items.items(),
         )
-        connection.commit()
+        if commit:
+            connection.commit()
 
 
 def get_metadata_value(db_path: DatabaseHandle, key: str) -> str | None:
