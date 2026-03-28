@@ -44,7 +44,7 @@ python -m pip install -e /path/to/taxon-weaver
 ### Install from a Git tag
 
 ```bash
-python -m pip install "taxon-weaver @ git+https://github.com/rafaelmdc/taxon-weaver.git@v1.0.1"
+python -m pip install "taxon-weaver @ git+https://github.com/rafaelmdc/taxon-weaver.git"
 ```
 
 ### Install from a built wheel
