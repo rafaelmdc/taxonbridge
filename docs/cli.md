@@ -3,7 +3,7 @@
 The supported command surface is the unified CLI:
 
 ```bash
-taxonbridge <command> [options]
+taxon-weaver <command> [options]
 ```
 
 Each command also lives in its own module under `taxonomy_tools/`, which keeps
@@ -16,7 +16,7 @@ the CLI implementation modular while preserving a single public entry point.
 Build the SQLite taxonomy reference database from an NCBI taxdump archive.
 
 ```bash
-taxonbridge build-db \
+taxon-weaver build-db \
   --dump data/taxdump/taxdump.tar.gz \
   --db data/ncbi_taxonomy.sqlite
 ```
@@ -34,7 +34,7 @@ Options:
 Resolve a single organism string.
 
 ```bash
-taxonbridge resolve-name \
+taxon-weaver resolve-name \
   "Ruminococcus" \
   --db data/ncbi_taxonomy.sqlite \
   --level genus
@@ -62,7 +62,7 @@ python -m taxonomy_tools.resolve_name_cli \
 Resolve many requests from a JSON input file.
 
 ```bash
-taxonbridge resolve-batch \
+taxon-weaver resolve-batch \
   --db data/ncbi_taxonomy.sqlite \
   --input data/resolve_requests.json \
   --output data/resolve_results.json
@@ -80,7 +80,7 @@ Options:
 Return cached lineage for one taxid.
 
 ```bash
-taxonbridge inspect-lineage \
+taxon-weaver inspect-lineage \
   --db data/ncbi_taxonomy.sqlite \
   --taxid 853
 ```
@@ -90,7 +90,7 @@ taxonbridge inspect-lineage \
 Persist reviewed decision records.
 
 ```bash
-taxonbridge apply-decisions \
+taxon-weaver apply-decisions \
   --db data/ncbi_taxonomy.sqlite \
   --cache-db data/review_cache.sqlite \
   --input data/decisions.json
@@ -107,7 +107,7 @@ Options:
 Return metadata for the current taxonomy build.
 
 ```bash
-taxonbridge build-info --db data/ncbi_taxonomy.sqlite
+taxon-weaver build-info --db data/ncbi_taxonomy.sqlite
 ```
 
 Compatibility note:

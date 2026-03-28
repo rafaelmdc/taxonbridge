@@ -1,6 +1,6 @@
 # Optimization Workflow
 
-This document captures the current speed strategy for Taxonbridge, what was
+This document captures the current speed strategy for Taxon Weaver, what was
 found to be slow, which storage costs are justified, which were reduced, and
 what to check next before making the database or resolver more complex.
 

@@ -495,6 +495,24 @@ Always preserve:
 - resolver result
 - review status
 
+For qualitative organism-disease findings, the adapter should also preserve the
+relationship direction explicitly. The clean storage shape is still bivariate:
+
+- organism
+- disease
+- direction (`enriched` or `depleted`)
+
+If a downstream network export is needed, project that same data into:
+
+- column A: enriched organisms
+- column B: diseases
+- column C: depleted organisms
+
+Rows marked `enriched` should populate only the left organism column. Rows
+marked `depleted` should populate only the right organism column. This keeps
+the database model normalized while producing the desired qualitative network
+view.
+
 ==================================================
 PHASE 11 — Django app design
 ==================================================
@@ -651,6 +669,23 @@ I want explicit data structures and/or model interactions for:
 - ambiguous mappings
 - unresolved mappings
 - audit logs
+
+For the qualitative network use case, the downstream finding model should link:
+
+- one `organism_id`
+- one disease concept
+- one direction flag
+
+Recommended interpretation:
+
+- treat the database as organism-disease bivariate data with directional
+  qualifiers
+- treat the rendered network as a three-column projection:
+  - enriched organism -> disease -> depleted organism
+
+That avoids modeling separate "positive organism" and "negative organism"
+entities in storage. The distinction belongs in the finding direction and the
+export/view layer.
 
 ==================================================
 PHASE 15 — Internal API design for future-proofing

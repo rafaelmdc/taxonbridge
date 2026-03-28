@@ -1,6 +1,6 @@
 # Architecture
 
-Taxonbridge is structured as a reusable core package with thin interfaces on
+Taxon Weaver is structured as a reusable core package with thin interfaces on
 top. The design goal is to keep taxonomy logic in one place and make it usable
 from local scripts, CLI workflows, tests, and later application layers.
 
@@ -83,6 +83,34 @@ The expected downstream workflow is:
 6. user decisions are persisted as reviewed mappings
 7. confirmed taxa are linked to canonical organism records downstream
 8. source findings retain their original observed names for provenance
+
+## Qualitative finding network shape
+
+For the intended microbiome curation workflow, the downstream findings model is
+best treated as a bivariate relationship:
+
+- one canonical organism
+- one disease or host-condition concept
+- one qualitative direction such as `enriched` or `depleted`
+
+That means the durable application data should store one finding like:
+
+- `organism_id`
+- `disease_id` or disease label
+- `direction`
+- source/provenance fields
+
+For visualization, that same bivariate data can be projected into a
+three-column network layout:
+
+- column A: enriched organisms
+- column B: diseases
+- column C: depleted organisms
+
+This keeps the underlying data model simple while making the qualitative
+direction visually explicit. The left and right organism columns are therefore
+two directional projections of the same organism entity type, not two distinct
+domain models.
 
 ## Module map
 

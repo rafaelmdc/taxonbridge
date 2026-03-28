@@ -1,6 +1,6 @@
 # Django Integration
 
-Taxonbridge should be installed into a Django project as a dependency. The
+Taxon Weaver should be installed into a Django project as a dependency. The
 Django app should configure database paths and call the resolver through a thin
 wrapper. Do not copy the package code into the Django repo.
 
@@ -9,13 +9,13 @@ wrapper. Do not copy the package code into the Django repo.
 Editable install from a local checkout:
 
 ```bash
-python -m pip install -e /path/to/taxonbridge
+python -m pip install -e /path/to/taxon-weaver
 ```
 
 Pinned install from a Git tag:
 
 ```bash
-python -m pip install "taxonbridge @ git+ssh://git@github.com/your-org/taxonbridge.git@v0.1.0"
+python -m pip install "taxon-weaver @ git+ssh://git@github.com/your-org/taxon-weaver.git@v0.1.0"
 ```
 
 ## Settings

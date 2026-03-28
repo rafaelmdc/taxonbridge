@@ -43,7 +43,7 @@ forward from the reviewed mapping record.
 Use `TaxonomyResolverService.record_decision()` or the CLI command:
 
 ```bash
-taxonbridge apply-decisions \
+taxon-weaver apply-decisions \
   --db data/ncbi_taxonomy.sqlite \
   --input data/decisions.json
 ```

@@ -1,6 +1,6 @@
 # Fuzzy Matching
 
-Fuzzy matching in Taxonbridge is a supervised fallback. It exists to surface
+Fuzzy matching in Taxon Weaver is a supervised fallback. It exists to surface
 good review candidates for near-misses, not to silently override deterministic
 resolution.
 

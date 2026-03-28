@@ -1,6 +1,6 @@
-# Taxonbridge
+# Taxon Weaver
 
-Taxonbridge is a reusable, local-first taxonomy resolution package for
+Taxon Weaver is a reusable, local-first taxonomy resolution package for
 microbiome curation workflows. It builds a local SQLite reference database from
 the NCBI taxdump, resolves observed organism names against that database, and
 returns stable JSON-serializable results for scripts, CLIs, and application
@@ -38,13 +38,13 @@ python -m pip install -e ".[dev]"
 ### Install into another repo from a local checkout
 
 ```bash
-python -m pip install -e /path/to/taxonbridge
+python -m pip install -e /path/to/taxon-weaver
 ```
 
 ### Install from a Git tag
 
 ```bash
-python -m pip install "taxonbridge @ git+ssh://git@github.com/your-org/taxonbridge.git@v0.1.0"
+python -m pip install "taxon-weaver @ git+https://github.com/rafaelmdc/taxon-weaver.git@v1.0.1"
 ```
 
 ### Install from a built wheel
@@ -58,12 +58,12 @@ python -m build
 Install:
 
 ```bash
-python -m pip install dist/taxonbridge-0.1.0-py3-none-any.whl
+python -m pip install dist/taxon_weaver-0.1.0-py3-none-any.whl
 ```
 
 ## Runtime data
 
-Taxonbridge does not bundle taxonomy SQLite databases or taxdump archives
+Taxon Weaver does not bundle taxonomy SQLite databases or taxdump archives
 inside the package. Those are runtime artifacts and should be supplied by path
 from your application or environment.
 
@@ -77,13 +77,13 @@ Recommended runtime settings:
 After installation, the unified console entry point is:
 
 ```bash
-taxonbridge <command> [options]
+taxon-weaver <command> [options]
 ```
 
 Build a taxonomy database:
 
 ```bash
-taxonbridge build-db \
+taxon-weaver build-db \
   --dump data/taxdump/taxdump.tar.gz \
   --db data/ncbi_taxonomy.sqlite
 ```
@@ -91,7 +91,7 @@ taxonbridge build-db \
 Download and build in one step:
 
 ```bash
-taxonbridge build-db \
+taxon-weaver build-db \
   --download \
   --dump data/taxdump/taxdump.tar.gz \
   --db data/ncbi_taxonomy.sqlite
@@ -100,7 +100,7 @@ taxonbridge build-db \
 Resolve one name:
 
 ```bash
-taxonbridge resolve-name \
+taxon-weaver resolve-name \
   "Faecalibacterium prausnitzii" \
   --db data/ncbi_taxonomy.sqlite \
   --level species
@@ -109,7 +109,7 @@ taxonbridge resolve-name \
 Inspect lineage:
 
 ```bash
-taxonbridge inspect-lineage \
+taxon-weaver inspect-lineage \
   --db data/ncbi_taxonomy.sqlite \
   --taxid 853
 ```
@@ -117,7 +117,7 @@ taxonbridge inspect-lineage \
 Show build metadata:
 
 ```bash
-taxonbridge build-info --db data/ncbi_taxonomy.sqlite
+taxon-weaver build-info --db data/ncbi_taxonomy.sqlite
 ```
 
 The module entry point still works after installation:

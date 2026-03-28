@@ -1,6 +1,6 @@
 # Taxonomy Database
 
-Taxonbridge builds a local SQLite reference database from the official NCBI
+Taxon Weaver builds a local SQLite reference database from the official NCBI
 taxdump. The database is the foundation for deterministic lookup, lineage
 retrieval, fuzzy candidate generation, and reviewed mapping reuse.
 
@@ -118,7 +118,7 @@ Current indexes:
 Build from a local archive:
 
 ```bash
-taxonbridge build-db \
+taxon-weaver build-db \
   --dump data/taxdump/taxdump.tar.gz \
   --db data/ncbi_taxonomy.sqlite
 ```
@@ -126,7 +126,7 @@ taxonbridge build-db \
 Download and build:
 
 ```bash
-taxonbridge build-db \
+taxon-weaver build-db \
   --download \
   --dump data/taxdump/taxdump.tar.gz \
   --db data/ncbi_taxonomy.sqlite

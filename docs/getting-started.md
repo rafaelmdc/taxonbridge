@@ -1,6 +1,6 @@
 # Getting Started
 
-This guide covers the normal local setup for Taxonbridge: install the package,
+This guide covers the normal local setup for Taxon Weaver: install the package,
 build the taxonomy SQLite database, inspect the result, and resolve names.
 
 ## Requirements
@@ -19,7 +19,7 @@ python -m pip install -e .
 Build from an existing local archive:
 
 ```bash
-taxonbridge build-db \
+taxon-weaver build-db \
   --dump data/taxdump/taxdump.tar.gz \
   --db data/ncbi_taxonomy.sqlite
 ```
@@ -27,7 +27,7 @@ taxonbridge build-db \
 Download the archive first, then build:
 
 ```bash
-taxonbridge build-db \
+taxon-weaver build-db \
   --download \
   --dump data/taxdump/taxdump.tar.gz \
   --db data/ncbi_taxonomy.sqlite
@@ -36,7 +36,7 @@ taxonbridge build-db \
 Optional build report:
 
 ```bash
-taxonbridge build-db \
+taxon-weaver build-db \
   --download \
   --dump data/taxdump/taxdump.tar.gz \
   --db data/ncbi_taxonomy.sqlite \
@@ -73,7 +73,7 @@ LIMIT 10;
 ## Resolve one name from the CLI
 
 ```bash
-taxonbridge resolve-name \
+taxon-weaver resolve-name \
   "Faecalibacterium prausnitzii" \
   --db data/ncbi_taxonomy.sqlite \
   --level species
@@ -82,7 +82,7 @@ taxonbridge resolve-name \
 Disable fuzzy fallback if you want deterministic-only behavior:
 
 ```bash
-taxonbridge resolve-name \
+taxon-weaver resolve-name \
   "Faecalibacterim prausnitzii" \
   --db data/ncbi_taxonomy.sqlite \
   --level species \
@@ -119,7 +119,7 @@ Example:
 Run the batch:
 
 ```bash
-taxonbridge resolve-batch \
+taxon-weaver resolve-batch \
   --db data/ncbi_taxonomy.sqlite \
   --input data/resolve_requests.json \
   --output data/resolve_results.json
@@ -157,7 +157,7 @@ to a separate cache database path.
 From the CLI:
 
 ```bash
-taxonbridge apply-decisions \
+taxon-weaver apply-decisions \
   --db data/ncbi_taxonomy.sqlite \
   --input data/decisions.json
 ```
@@ -165,7 +165,7 @@ taxonbridge apply-decisions \
 Or with a dedicated cache database:
 
 ```bash
-taxonbridge apply-decisions \
+taxon-weaver apply-decisions \
   --db data/ncbi_taxonomy.sqlite \
   --cache-db data/review_cache.sqlite \
   --input data/decisions.json
